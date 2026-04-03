@@ -1,0 +1,17 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --check index.js && node --check walletconnect-pay.js && node --check initialize-wallet.js"
+  },
+  "dependencies": {
+    "@walletconnect/pay": "^1.0.8",
+    "express": "^5.2.1"
+  }
+}
