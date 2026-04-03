@@ -7,9 +7,11 @@ const {
   isWalletConnectPaymentCandidate,
   normalizePaymentLinkInput,
 } = require("./walletconnect-pay");
+const { createSolidityPaymentRegistry } = require("./solidity-payments");
 
 const app = express();
 const client = createWalletConnectPayClient();
+const paymentRegistry = createSolidityPaymentRegistry();
 const port = Number(process.env.PORT || 3000);
 
 app.use(express.json({ limit: "1mb" }));
@@ -147,6 +149,65 @@ app.post("/api/walletconnect/confirm-payment", async (req, res) => {
   }
 });
 
+app.get("/api/solidity/health", async (req, res) => {
+  try {
+    if (!paymentRegistry) {
+      sendError(
+        res,
+        503,
+        "Solidity registry not configured. Set SOLIDITY_RPC_URL, SOLIDITY_PRIVATE_KEY, and SOLIDITY_PAYMENT_REGISTRY_ADDRESS.",
+      );
+      return;
+    }
+
+    const health = await paymentRegistry.health();
+    res.json(health);
+  } catch (error) {
+    sendError(res, 500, error.message);
+  }
+});
+
+app.post("/api/solidity/record-payment", async (req, res) => {
+  try {
+    if (!paymentRegistry) {
+      sendError(
+        res,
+        503,
+        "Solidity registry not configured. Set SOLIDITY_RPC_URL, SOLIDITY_PRIVATE_KEY, and SOLIDITY_PAYMENT_REGISTRY_ADDRESS.",
+      );
+      return;
+    }
+
+    const result = await paymentRegistry.recordPayment(req.body ?? {});
+    res.json(result);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+app.get("/api/solidity/payment/:paymentId", async (req, res) => {
+  try {
+    if (!paymentRegistry) {
+      sendError(
+        res,
+        503,
+        "Solidity registry not configured. Set SOLIDITY_RPC_URL, SOLIDITY_PRIVATE_KEY, and SOLIDITY_PAYMENT_REGISTRY_ADDRESS.",
+      );
+      return;
+    }
+
+    const payment = await paymentRegistry.getPayment(req.params.paymentId);
+    if (!payment) {
+      sendError(res, 404, `Payment not found: ${req.params.paymentId}`);
+      return;
+    }
+
+    res.json(payment);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
 app.use((req, res) => {
   if (req.accepts("html")) {
     res.sendFile(path.join(__dirname, "..", "frontend", "index.html"));
@@ -165,4 +226,5 @@ if (require.main === module) {
 module.exports = {
   app,
   client,
+  paymentRegistry,
 };

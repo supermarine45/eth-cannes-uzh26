@@ -8,10 +8,13 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --check index.js && node --check walletconnect-pay.js && node --check initialize-wallet.js"
+    "test": "node --check index.js && node --check walletconnect-pay.js && node --check initialize-wallet.js && node --check solidity-payments.js && node --check deploy-registry.js",
+    "deploy:registry": "node deploy-registry.js"
   },
   "dependencies": {
     "@walletconnect/pay": "^1.0.8",
-    "express": "^5.2.1"
+    "ethers": "^6.13.4",
+    "express": "^5.2.1",
+    "solc": "^0.8.30"
   }
 }
