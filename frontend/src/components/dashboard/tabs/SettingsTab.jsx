@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '@/context/useAuth'
 import { Button } from '@/components/ui/button'
+import { deleteAuthAccount } from '@/lib/auth'
 
 function maskWalletAddress(address) {
   const value = String(address || '').trim()
@@ -21,7 +22,7 @@ function normalizeAddress(value) {
 }
 
 export default function SettingsTab() {
-  const { profile, user, walletAddresses, clearSession, saveOnboarding } = useAuth()
+  const { profile, user, walletAddresses, session, clearSession, saveOnboarding } = useAuth()
   const [showNotifications, setShowNotifications] = useState(true)
   const [showEmails, setShowEmails] = useState(true)
   const [walletAddressInput, setWalletAddressInput] = useState('')
@@ -30,7 +31,12 @@ export default function SettingsTab() {
   const [walletSuccess, setWalletSuccess] = useState('')
   const [copiedAddress, setCopiedAddress] = useState('')
   const [savingWallets, setSavingWallets] = useState(false)
+  const [deletingAccount, setDeletingAccount] = useState(false)
+  const [showDeleteAccountDialog, setShowDeleteAccountDialog] = useState(false)
+  const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState('')
   const [showAddWalletPopover, setShowAddWalletPopover] = useState(false)
+
+  const deleteAccountPhrase = 'I want to Delete my account'
 
   const accountType = profile?.account_type || 'individual'
   const accountTypeLabel = accountType === 'business' ? 'Merchant' : 'Individual'
@@ -38,6 +44,50 @@ export default function SettingsTab() {
   const handleLogout = () => {
     clearSession('You have been logged out.')
     window.location.href = '/auth'
+  }
+
+  const openDeleteAccountDialog = () => {
+    setWalletError('')
+    setWalletSuccess('')
+    setDeleteAccountConfirmation('')
+    setShowDeleteAccountDialog(true)
+  }
+
+  const closeDeleteAccountDialog = () => {
+    if (deletingAccount) {
+      return
+    }
+
+    setShowDeleteAccountDialog(false)
+    setDeleteAccountConfirmation('')
+  }
+
+  const handleDeleteAccount = async () => {
+    setWalletError('')
+    setWalletSuccess('')
+
+    if (!session?.accessToken) {
+      setWalletError('No active session found.')
+      return
+    }
+
+    if (deleteAccountConfirmation !== deleteAccountPhrase) {
+      setWalletError(`Type "${deleteAccountPhrase}" to confirm account deletion.`)
+      return
+    }
+
+    try {
+      setDeletingAccount(true)
+      await deleteAuthAccount(session.accessToken)
+      clearSession('Your account was deleted.')
+      setShowDeleteAccountDialog(false)
+      setDeleteAccountConfirmation('')
+      window.location.href = '/auth'
+    } catch (error) {
+      setWalletError(error.message || 'Unable to delete account.')
+    } finally {
+      setDeletingAccount(false)
+    }
   }
 
   const handleCopyAddress = async (walletAddress) => {
@@ -408,10 +458,75 @@ export default function SettingsTab() {
       {/* Session Management */}
       <section className="space-y-4">
         <h3 className="font-semibold text-foreground">Session</h3>
-        <Button variant="destructive" onClick={handleLogout} className="w-full">
-          Logout
-        </Button>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Button variant="destructive" onClick={handleLogout} className="w-full">
+            Logout
+          </Button>
+          <Button variant="destructive" disabled={deletingAccount} onClick={openDeleteAccountDialog} className="w-full">
+            Delete Account
+          </Button>
+        </div>
       </section>
+
+      {showDeleteAccountDialog ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-3xl border border-border bg-card p-6 shadow-2xl">
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-destructive">Danger zone</p>
+                <h3 className="mt-2 text-2xl font-semibold text-foreground">Delete your account permanently</h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  This action cannot be undone. Your profile, linked wallet data, and session will be removed from this app.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+                <p className="font-medium">Warnings</p>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  <li>This permanently deletes your account from the backend.</li>
+                  <li>Your linked profile and wallet records will be removed.</li>
+                  <li>You will be signed out immediately after deletion.</li>
+                </ul>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-foreground" htmlFor="delete-account-confirmation">
+                  Type <span className="font-semibold">{deleteAccountPhrase}</span> to confirm
+                </label>
+                <input
+                  id="delete-account-confirmation"
+                  className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground/80 focus:border-ring focus:ring-2 focus:ring-ring/40"
+                  value={deleteAccountConfirmation}
+                  onChange={(event) => setDeleteAccountConfirmation(event.target.value)}
+                  placeholder={deleteAccountPhrase}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </div>
+
+              {walletError ? (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                  {walletError}
+                </div>
+              ) : null}
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <Button type="button" variant="outline" onClick={closeDeleteAccountDialog} disabled={deletingAccount}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleDeleteAccount}
+                  disabled={deletingAccount || deleteAccountConfirmation !== deleteAccountPhrase}
+                >
+                  {deletingAccount ? 'Deleting...' : 'Delete Account'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

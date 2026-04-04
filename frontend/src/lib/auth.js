@@ -177,6 +177,15 @@ export function refreshAuthSession(refreshToken) {
   })
 }
 
+export function deleteAuthAccount(accessToken) {
+  return request('/api/auth/account', {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+}
+
 export function exchangeOAuthCode(code, provider = 'google') {
   const exchangePath = `/api/auth/${provider}/callback`
   return request(exchangePath, {
