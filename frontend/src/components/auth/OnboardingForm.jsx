@@ -145,7 +145,9 @@ function validateAdultDateOfBirth(value) {
 
 export default function OnboardingForm() {
   const { session, user, profile, walletAddresses, saveOnboarding } = useAuth()
+  const isMetaMaskSignup = session?.provider === 'metamask'
   const [fullName, setFullName] = useState('')
+  const [emailAddress, setEmailAddress] = useState('')
   const [dateOfBirth, setDateOfBirth] = useState('')
   const [accountType, setAccountType] = useState('individual')
   const [companyName, setCompanyName] = useState('')
@@ -183,7 +185,8 @@ export default function OnboardingForm() {
 
   useEffect(() => {
     if (profile && !walletsHydrated) {
-      setFullName(resolvePrefillName({ profile, session, user }))
+      setFullName(isMetaMaskSignup ? '' : resolvePrefillName({ profile, session, user }))
+      setEmailAddress(String(profile.email || user?.email || session?.user?.email || '').trim())
       setDateOfBirth(profile.date_of_birth ?? '')
       setAccountType(profile.account_type ?? 'individual')
       setCompanyName(profile.company_name ?? '')
@@ -207,13 +210,17 @@ export default function OnboardingForm() {
           isPrimary: true,
         },
       ])
+      setEmailAddress(String(user?.email || session?.user?.email || '').trim())
       setWalletsHydrated(true)
     }
     if (!profile && !walletsHydrated) {
-      setFullName(resolvePrefillName({ profile, session, user }))
+      setFullName(isMetaMaskSignup ? '' : resolvePrefillName({ profile, session, user }))
+      if (!isMetaMaskSignup) {
+        setEmailAddress(String(user?.email || session?.user?.email || '').trim())
+      }
       setWalletsHydrated(true)
     }
-  }, [profile, walletAddresses, session, user, walletsHydrated])
+  }, [isMetaMaskSignup, profile, walletAddresses, session, user, walletsHydrated])
 
   const addWallet = (address, labelValue = '', makePrimary = false) => {
     const normalized = normalizeAddress(address)
@@ -291,8 +298,12 @@ export default function OnboardingForm() {
     setError('')
 
     try {
-      if (!fullName.trim()) {
+      if (!isMetaMaskSignup && !fullName.trim()) {
         throw new Error('Name is required.')
+      }
+
+      if (isMetaMaskSignup && !emailAddress.trim()) {
+        throw new Error('Email address is required for MetaMask signups.')
       }
 
       validateAdultDateOfBirth(dateOfBirth)
@@ -313,12 +324,12 @@ export default function OnboardingForm() {
 
       await saveOnboarding({
         authProvider: session?.provider,
-        fullName,
+        fullName: isMetaMaskSignup ? null : fullName,
         dateOfBirth,
         accountType,
         companyName: accountType === 'business' ? companyName : null,
         businessAddress: accountType === 'business' ? businessAddress : null,
-        email: user?.email || session?.user?.email,
+        email: isMetaMaskSignup ? emailAddress.trim() : (user?.email || session?.user?.email || emailAddress.trim() || null),
         walletAddresses: wallets.map((entry, index) => ({
           address: entry.address,
           label: entry.label,
@@ -343,10 +354,25 @@ export default function OnboardingForm() {
       </div>
 
       <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
-        <div>
-          <label className={label} htmlFor="fullName">Name</label>
-          <input id="fullName" className={input} value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Jane Doe" />
-        </div>
+        {isMetaMaskSignup ? (
+          <div>
+            <label className={label} htmlFor="emailAddress">Email address</label>
+            <input
+              id="emailAddress"
+              type="email"
+              className={input}
+              value={emailAddress}
+              onChange={(event) => setEmailAddress(event.target.value)}
+              placeholder="name@example.com"
+              required
+            />
+          </div>
+        ) : (
+          <div>
+            <label className={label} htmlFor="fullName">Name</label>
+            <input id="fullName" className={input} value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Jane Doe" />
+          </div>
+        )}
 
         <div>
           <label className={label} htmlFor="dateOfBirth">Date of birth</label>

@@ -267,14 +267,14 @@ function normalizeWalletAddresses(walletAddresses) {
   })
 }
 
-function validateOnboardingInput(body) {
+function validateOnboardingInput(body, provider = 'email') {
   const fullName = String(body?.fullName || '').trim()
   const dateOfBirth = String(body?.dateOfBirth || '').trim()
   const accountType = normalizeAccountType(body?.accountType ?? body?.account_type)
   const companyName = String(body?.companyName ?? body?.company_name ?? '').trim()
   const businessAddress = String(body?.businessAddress ?? body?.business_address ?? '').trim()
 
-  if (!fullName) {
+  if (provider !== 'metamask' && !fullName) {
     throw new Error('fullName is required.')
   }
 
@@ -304,7 +304,7 @@ function validateOnboardingInput(body) {
   }
 
   return {
-    fullName,
+    fullName: fullName || null,
     dateOfBirth,
     accountType,
     companyName: companyName || null,
@@ -871,7 +871,7 @@ router.post('/onboarding', async (req, res) => {
       })
     }
 
-    const parsed = validateOnboardingInput(req.body)
+    const parsed = validateOnboardingInput(req.body, provider)
     const walletAddresses = normalizeWalletAddresses(req.body?.walletAddresses ?? req.body?.wallet_addresses)
     if (walletAddresses.length === 0) {
       throw new Error('walletAddresses must include at least one wallet.')
