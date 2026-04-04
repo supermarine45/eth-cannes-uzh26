@@ -29,35 +29,28 @@ const tabConfig = {
   ],
 }
 
-function renderTabContent(tabId) {
-  switch (tabId) {
-    case 'wallet':
-      return <WalletBalanceTab />
-    case 'trade':
-      return <TradeTab />
-    case 'payments':
-      return <PaymentsTab />
-    case 'invoices':
-      return <InvoicesTab />
-    case 'bills':
-      return <BillsTab />
-    case 'ledger':
-      return <LedgerTab />
-    case 'settings':
-      return <SettingsTab />
-    default:
-      return <WalletBalanceTab />
-  }
-}
-
 export default function Dashboard() {
-  const { profile, user, clearSession } = useAuth()
+  const { profile, user, walletAddresses, clearSession } = useAuth()
   const accountType = profile?.account_type || 'individual'
   const [activeTab, setActiveTab] = useState('wallet')
-  
+
   const tabs = tabConfig[accountType] || tabConfig.individual
   const displayName = profile?.full_name || user?.email || 'User'
   const accountTypeLabel = accountType === 'business' ? 'Merchant' : 'Individual'
+  const userWallet = walletAddresses?.[0]?.wallet_address || null
+
+  function renderTabContent(tabId) {
+    switch (tabId) {
+      case 'wallet':   return <WalletBalanceTab />
+      case 'trade':    return <TradeTab />
+      case 'payments': return <PaymentsTab />
+      case 'invoices': return <InvoicesTab userWallet={userWallet} />
+      case 'bills':    return <BillsTab userWallet={userWallet} />
+      case 'ledger':   return <LedgerTab />
+      case 'settings': return <SettingsTab />
+      default:         return <WalletBalanceTab />
+    }
+  }
 
   return (
     <main className="relative min-h-screen bg-background text-foreground">

@@ -10,14 +10,15 @@ const {
   normalizePaymentLinkInput,
 } = require("./src/walletconnect-pay");
 const { createSolidityPaymentRegistry } = require("./src/solidity-payments");
+const { createInvoiceRegistry } = require("./src/invoice-registry");
 const { calculateTokenAmount } = require("./src/flare-service");
 const { buildSwapToUSDC, ETH_ADDRESS } = require("./src/uniswap-service");
-const { createEnsCommerceRegistry } = require("./ens-commerce");
+const { getCommodityUSDPrice, getCommodityInCrypto, getAllCommodityPrices } = require("./src/commodity-service");
 
 const app = express();
 const client = createWalletConnectPayClient();
 const paymentRegistry = createSolidityPaymentRegistry();
-const ensRegistry = createEnsCommerceRegistry();
+const invoiceRegistry = createInvoiceRegistry();
 const port = Number(process.env.PORT || 3000);
 
 app.use(express.json({ limit: "1mb" }));
@@ -95,6 +96,165 @@ async function handleGetPaymentOptions(req, res) {
 
 app.get("/health", (req, res) => {
   res.json({ ok: true });
+});
+
+// POST /api/merchant/invoice
+// Body: { amountUSD, merchantWallet, recipientWallet, description, dueDate, referenceId }
+app.post("/api/merchant/invoice", async (req, res) => {
+  try {
+    const merchantId = process.env.WALLETCONNECT_MERCHANT_ID;
+    const customerApiKey = process.env.WALLETCONNECT_CUSTOMER_API_KEY;
+    const apiUrl = process.env.WALLETCONNECT_API_URL;
+
+    if (!merchantId || !customerApiKey) {
+      return sendError(res, 503, "Merchant credentials not configured. Set WALLETCONNECT_MERCHANT_ID and WALLETCONNECT_CUSTOMER_API_KEY.");
+    }
+
+    const { amountUSD, merchantWallet, recipientWallet, description, dueDate, referenceId } = req.body ?? {};
+    if (!amountUSD || typeof amountUSD !== "number" || amountUSD <= 0) {
+      return sendError(res, 400, "amountUSD must be a positive number");
+    }
+
+    const ref = referenceId || `omni-${Date.now()}`;
+    const amountCents = Math.round(amountUSD * 100).toString();
+
+    // Step 1: Create WalletConnect payment link
+    const response = await fetch(`${apiUrl}/v1/merchant/payment`, {
+      method: "POST",
+      headers: {
+        "Api-Key": customerApiKey,
+        "Merchant-Id": merchantId,
+        "Content-Type": "application/json",
+        "Sdk-Name": "OmniCheckout",
+        "Sdk-Version": "1.0.0",
+        "Sdk-Platform": "web",
+      },
+      body: JSON.stringify({ referenceId: ref, amount: { value: amountCents, unit: "iso4217/USD" } }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) return sendError(res, response.status, "WalletConnect merchant API error", data);
+
+    // Step 2: Write invoice to Coston2 on-chain registry (if wallets provided and registry configured)
+    let onChain = null;
+    if (invoiceRegistry && merchantWallet && recipientWallet) {
+      try {
+        onChain = await invoiceRegistry.createInvoice({
+          merchant: merchantWallet,
+          recipient: recipientWallet,
+          paymentId: data.paymentId,
+          gatewayUrl: data.gatewayUrl,
+          description: description || "",
+          amountUSD,
+          dueDate: dueDate || null,
+        });
+      } catch (chainErr) {
+        console.error("On-chain invoice write failed:", chainErr.message);
+        // Don't fail the request — payment link still works
+      }
+    }
+
+    res.json({
+      paymentId: data.paymentId,
+      gatewayUrl: data.gatewayUrl,
+      expiresAt: data.expiresAt,
+      amountUSD,
+      referenceId: ref,
+      onChain,
+    });
+  } catch (error) {
+    sendError(res, 500, error.message);
+  }
+});
+
+// GET /api/merchant/invoices?wallet=0x...
+app.get("/api/merchant/invoices", async (req, res) => {
+  try {
+    if (!invoiceRegistry) return sendError(res, 503, "Invoice registry not configured. Set INVOICE_REGISTRY_ADDRESS.");
+    const { wallet } = req.query;
+    if (!wallet) return sendError(res, 400, "wallet query param required");
+    const invoices = await invoiceRegistry.getByMerchant(wallet);
+    res.json(invoices);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+// GET /api/bills?wallet=0x...
+app.get("/api/bills", async (req, res) => {
+  try {
+    if (!invoiceRegistry) return sendError(res, 503, "Invoice registry not configured. Set INVOICE_REGISTRY_ADDRESS.");
+    const { wallet } = req.query;
+    if (!wallet) return sendError(res, 400, "wallet query param required");
+    const invoices = await invoiceRegistry.getByRecipient(wallet);
+    res.json(invoices);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+// PATCH /api/merchant/invoice/:paymentId/status
+// Body: { status: "Paid" | "Expired" | "Cancelled" }
+app.patch("/api/merchant/invoice/:paymentId/status", async (req, res) => {
+  try {
+    if (!invoiceRegistry) return sendError(res, 503, "Invoice registry not configured. Set INVOICE_REGISTRY_ADDRESS.");
+    const { status } = req.body ?? {};
+    if (!status) return sendError(res, 400, "status required");
+    const result = await invoiceRegistry.updateStatus(req.params.paymentId, status);
+    res.json(result);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+// GET /api/merchant/invoice/:paymentId/status
+app.get("/api/merchant/invoice/:paymentId/status", async (req, res) => {
+  try {
+    const merchantId = process.env.WALLETCONNECT_MERCHANT_ID;
+    const customerApiKey = process.env.WALLETCONNECT_CUSTOMER_API_KEY;
+    const apiUrl = process.env.WALLETCONNECT_API_URL;
+
+    if (!merchantId || !customerApiKey) return sendError(res, 503, "Merchant credentials not configured.");
+
+    const response = await fetch(`${apiUrl}/v1/merchant/payment/${req.params.paymentId}/status`, {
+      headers: { "Api-Key": customerApiKey, "Merchant-Id": merchantId },
+    });
+    const data = await response.json();
+    if (!response.ok) return sendError(res, response.status, "WalletConnect merchant API error", data);
+    res.json(data);
+  } catch (error) {
+    sendError(res, 500, error.message);
+  }
+});
+
+// GET /api/commodity — all commodity prices
+app.get("/api/commodity", async (req, res) => {
+  try {
+    const data = await getAllCommodityPrices();
+    res.json(data);
+  } catch (error) {
+    sendError(res, 500, error.message);
+  }
+});
+
+// GET /api/commodity/:commodity — single commodity in USD
+app.get("/api/commodity/:commodity", async (req, res) => {
+  try {
+    const data = await getCommodityUSDPrice(req.params.commodity);
+    res.json(data);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+// GET /api/commodity/:commodity/in/:crypto — cross-rate using Flare FTSO
+app.get("/api/commodity/:commodity/in/:crypto", async (req, res) => {
+  try {
+    const data = await getCommodityInCrypto(req.params.commodity, req.params.crypto);
+    res.json(data);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
 });
 
 // POST /api/checkout/quote
