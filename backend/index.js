@@ -8,8 +8,6 @@ const {
   normalizePaymentLinkInput,
 } = require("./walletconnect-pay");
 const { createSolidityPaymentRegistry } = require("./solidity-payments");
-const { calculateTokenAmount } = require("./flare-service");
-const { buildSwapToUSDC, ETH_ADDRESS } = require("./uniswap-service");
 
 const app = express();
 const client = createWalletConnectPayClient();
@@ -76,42 +74,6 @@ async function handleGetPaymentOptions(req, res) {
 
 app.get("/health", (req, res) => {
   res.json({ ok: true });
-});
-
-// POST /api/checkout/quote
-// Body: { invoiceUSD: 23.47, userWallet: "0x...", token: "ETH" }
-// Calls Flare for live price, Uniswap to build swap tx, returns both
-app.post("/api/checkout/quote", async (req, res) => {
-  try {
-    const { invoiceUSD, userWallet, token = "ETH" } = req.body ?? {};
-
-    if (!invoiceUSD || typeof invoiceUSD !== "number" || invoiceUSD <= 0) {
-      return sendError(res, 400, "invoiceUSD must be a positive number");
-    }
-    if (!userWallet || !/^0x[a-fA-F0-9]{40}$/.test(userWallet)) {
-      return sendError(res, 400, "userWallet must be a valid Ethereum address");
-    }
-
-    const { tokenAmount, usdPrice, timestamp } = await calculateTokenAmount(invoiceUSD, token);
-    const { quote, transaction } = await buildSwapToUSDC(userWallet, ETH_ADDRESS, invoiceUSD);
-
-    res.json({
-      invoiceUSD,
-      token: token.toUpperCase(),
-      usdPrice,
-      tokenAmount,
-      priceTimestamp: timestamp,
-      uniswap: {
-        tokenInAmount: quote.tokenInAmount,
-        usdcOut: quote.usdcOut,
-        gasFeeUSD: quote.gasFeeUSD,
-        routing: quote.routing,
-      },
-      transaction,
-    });
-  } catch (error) {
-    sendError(res, 500, error.message);
-  }
 });
 
 app.post("/api/walletconnect/inspect-link", (req, res) => {
