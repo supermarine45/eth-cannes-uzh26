@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 
 const API_BASE = import.meta.env.VITE_AUTH_BASE_URL || ''
 
-export default function InvoicesTab({ userWallet }) {
+export default function InvoicesTab({ userWallet, isMerchant = false }) {
   const [showGenerateForm, setShowGenerateForm] = useState(false)
   const [invoices, setInvoices] = useState([])
   const [loading, setLoading] = useState(false)
@@ -241,13 +241,13 @@ export default function InvoicesTab({ userWallet }) {
               )}
 
               <div className="flex gap-2 flex-wrap">
-                {invoice.gatewayUrl && (
+                {invoice.gatewayUrl && !isMerchant && (
                   <a href={invoice.gatewayUrl} target="_blank" rel="noopener noreferrer"
                     className="text-xs font-medium text-primary hover:underline">
                     Open payment page
                   </a>
                 )}
-                <span className="text-muted-foreground">·</span>
+                {invoice.gatewayUrl && !isMerchant && <span className="text-muted-foreground">·</span>}
                 <button onClick={() => pollStatus(invoice.paymentId)}
                   className="text-xs font-medium text-primary hover:underline">
                   Check status

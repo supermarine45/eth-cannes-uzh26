@@ -11,6 +11,7 @@ const {
 } = require("./src/walletconnect-pay");
 const { createSolidityPaymentRegistry } = require("./src/solidity-payments");
 const { createInvoiceRegistry } = require("./src/invoice-registry");
+const { createEnsCommerceRegistry } = require("./ens-commerce");
 const { calculateTokenAmount } = require("./src/flare-service");
 const { buildSwapToUSDC, ETH_ADDRESS } = require("./src/uniswap-service");
 const { getCommodityUSDPrice, getCommodityInCrypto, getAllCommodityPrices } = require("./src/commodity-service");
@@ -19,6 +20,7 @@ const app = express();
 const client = createWalletConnectPayClient();
 const paymentRegistry = createSolidityPaymentRegistry();
 const invoiceRegistry = createInvoiceRegistry();
+const ensRegistry = createEnsCommerceRegistry();
 const port = Number(process.env.PORT || 3000);
 
 app.use(express.json({ limit: "1mb" }));
@@ -493,6 +495,86 @@ app.get("/api/ens/discover", async (req, res) => {
     const tag2 = req.query.tag2 || '';
     const result = await ensRegistry.discoverProfiles(offset, limit, tag1, tag2);
     res.json(result);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+app.get("/api/ens/payees", async (req, res) => {
+  try {
+    const offset = req.query.offset ? parseInt(req.query.offset, 10) : 0;
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : 10;
+    const tag1 = req.query.tag1 || "";
+    const tag2 = req.query.tag2 || "";
+    const wallet = typeof req.query.wallet === "string" && req.query.wallet.trim() ? req.query.wallet.trim() : null;
+
+    const discovered = await ensRegistry.discoverProfiles(offset, limit, tag1, tag2);
+
+    const profiles = await Promise.all(
+      discovered.profiles.map(async (profile) => {
+        let myReview = null;
+        let mySummary = null;
+        let latestReviews = [];
+
+        const reviewers = await ensRegistry.getKnownReviewers(profile.owner);
+        const recentReviewerAddresses = reviewers.slice(0, 3);
+
+        latestReviews = await Promise.all(
+          recentReviewerAddresses.map(async (reviewerAddress) => {
+            try {
+              const feedbackIndex = await ensRegistry.getLastFeedbackIndex(profile.owner, reviewerAddress);
+              if (!feedbackIndex || feedbackIndex < 1) {
+                return null;
+              }
+
+              const feedback = await ensRegistry.readFeedback(profile.owner, reviewerAddress, feedbackIndex);
+              return {
+                reviewerAddress,
+                feedbackIndex,
+                ...feedback,
+              };
+            } catch {
+              return null;
+            }
+          }),
+        );
+
+        latestReviews = latestReviews.filter(Boolean);
+
+        if (wallet) {
+          try {
+            const feedbackIndex = await ensRegistry.getLastFeedbackIndex(profile.owner, wallet);
+            if (feedbackIndex && feedbackIndex >= 1) {
+              const feedback = await ensRegistry.readFeedback(profile.owner, wallet, feedbackIndex);
+              myReview = {
+                reviewerAddress: wallet,
+                feedbackIndex,
+                ...feedback,
+              };
+            }
+
+            mySummary = await ensRegistry.getSummary(profile.owner, [wallet], tag1, tag2);
+          } catch {
+            myReview = null;
+            mySummary = null;
+          }
+        }
+
+        return {
+          ...profile,
+          latestReviews,
+          myReview,
+          mySummary,
+        };
+      }),
+    );
+
+    res.json({
+      offset: discovered.offset,
+      limit: discovered.limit,
+      totalProfiles: discovered.totalProfiles,
+      profiles,
+    });
   } catch (error) {
     sendError(res, 400, error.message);
   }

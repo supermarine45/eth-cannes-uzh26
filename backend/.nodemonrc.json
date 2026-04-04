@@ -1,0 +1,7 @@
+{
+  "watch": ["index.js", "src/", "contracts/", "skills/"],
+  "ignore": ["node_modules/", ".git/"],
+  "ext": "js,json,sol",
+  "delay": 500,
+  "verbose": true
+}

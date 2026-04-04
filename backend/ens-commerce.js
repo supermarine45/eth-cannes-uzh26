@@ -199,6 +199,18 @@ function createEnsCommerceRegistry() {
       };
     },
 
+    getKnownReviewers: async (targetAddress) => {
+      const { contract } = ensureInitialized();
+      const reviewers = await contract.getKnownReviewers(targetAddress);
+      return Array.from(reviewers);
+    },
+
+    getLastFeedbackIndex: async (targetAddress, reviewerAddress) => {
+      const { contract } = ensureInitialized();
+      const index = await contract.getLastIndex(targetAddress, reviewerAddress);
+      return Number(index);
+    },
+
     getSummary: async (targetAddress, reviewerAddresses, tag1, tag2) => {
       const { contract } = ensureInitialized();
       if (!reviewerAddresses || reviewerAddresses.length === 0) {

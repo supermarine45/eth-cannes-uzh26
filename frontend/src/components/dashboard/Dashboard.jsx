@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useAuth } from '@/context/useAuth'
 import { Button } from '@/components/ui/button'
 import WalletBalanceTab from './tabs/WalletBalanceTab'
@@ -8,12 +7,14 @@ import BillsTab from './tabs/BillsTab'
 import LedgerTab from './tabs/LedgerTab'
 import SettingsTab from './tabs/SettingsTab'
 import InvoicesTab from './tabs/InvoicesTab'
+import PayeesTab from './tabs/PayeesTab'
 
 const tabConfig = {
   individual: [
     { id: 'wallet', name: 'Wallet Balance', icon: '💰' },
     { id: 'trade', name: 'Trade', icon: '📈' },
     { id: 'payments', name: 'Payments', icon: '💳' },
+    { id: 'payees', name: 'Payees', icon: '👥' },
     { id: 'bills', name: 'Bills', icon: '📄' },
     { id: 'ledger', name: 'Ledger', icon: '📊' },
     { id: 'settings', name: 'Settings', icon: '⚙️' },
@@ -22,6 +23,7 @@ const tabConfig = {
     { id: 'wallet', name: 'Wallet Balance', icon: '💰' },
     { id: 'trade', name: 'Trade', icon: '📈' },
     { id: 'payments', name: 'Payments', icon: '💳' },
+    { id: 'payees', name: 'Payees', icon: '👥' },
     { id: 'invoices', name: 'Invoices', icon: '📋' },
     { id: 'bills', name: 'Bills', icon: '📄' },
     { id: 'ledger', name: 'Ledger', icon: '📊' },
@@ -29,14 +31,13 @@ const tabConfig = {
   ],
 }
 
-export default function Dashboard() {
+export default function Dashboard({ activeTab = 'wallet', onTabChange }) {
   const { profile, user, walletAddresses, clearSession } = useAuth()
   const accountType = profile?.account_type || 'individual'
-  const [activeTab, setActiveTab] = useState('wallet')
-
   const tabs = tabConfig[accountType] || tabConfig.individual
   const displayName = profile?.full_name || user?.email || 'User'
   const accountTypeLabel = accountType === 'business' ? 'Merchant' : 'Individual'
+  const isMerchant = accountType === 'business'
   const userWallet = walletAddresses?.[0]?.wallet_address || null
 
   function renderTabContent(tabId) {
@@ -44,13 +45,23 @@ export default function Dashboard() {
       case 'wallet':   return <WalletBalanceTab />
       case 'trade':    return <TradeTab />
       case 'payments': return <PaymentsTab />
-      case 'invoices': return <InvoicesTab userWallet={userWallet} />
+      case 'payees':   return <PayeesTab userWallet={userWallet} />
+      case 'invoices': return <InvoicesTab userWallet={userWallet} isMerchant={isMerchant} />
       case 'bills':    return <BillsTab userWallet={userWallet} />
       case 'ledger':   return <LedgerTab />
       case 'settings': return <SettingsTab />
       default:         return <WalletBalanceTab />
     }
   }
+
+  const handleTabChange = (tabId) => {
+    if (onTabChange) {
+      onTabChange(tabId)
+    }
+  }
+
+  // Validate tab exists in config, otherwise default to 'wallet'
+  const validTab = tabs.some(tab => tab.id === activeTab) ? activeTab : 'wallet'
 
   return (
     <main className="relative min-h-screen bg-background text-foreground">
@@ -87,9 +98,9 @@ export default function Dashboard() {
           {tabs.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabChange(tab.id)}
               className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
-                activeTab === tab.id
+                validTab === tab.id
                   ? 'bg-primary text-primary-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
@@ -102,7 +113,7 @@ export default function Dashboard() {
 
         {/* Tab Content */}
         <div className="rounded-3xl border border-border/70 bg-card/90 p-6 shadow-sm backdrop-blur md:p-8">
-          {renderTabContent(activeTab)}
+          {renderTabContent(validTab)}
         </div>
       </div>
     </main>
