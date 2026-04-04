@@ -13,7 +13,7 @@ const { createSolidityPaymentRegistry } = require("./src/solidity-payments");
 const { createInvoiceRegistry } = require("./src/invoice-registry");
 const { createEnsCommerceRegistry } = require("./ens-commerce");
 const { calculateTokenAmount } = require("./src/flare-service");
-const { buildSwapToUSDC, ETH_ADDRESS } = require("./src/uniswap-service");
+const { buildSwapToUSDC, getLiveEthUsdcRates, ETH_ADDRESS } = require("./src/uniswap-service");
 const { getCommodityUSDPrice, getCommodityInCrypto, getAllCommodityPrices } = require("./src/commodity-service");
 
 const app = express();
@@ -290,6 +290,16 @@ app.post("/api/checkout/quote", async (req, res) => {
       },
       transaction,
     });
+  } catch (error) {
+    sendError(res, 500, error.message);
+  }
+});
+
+// GET /api/uniswap/live-rates
+app.get("/api/uniswap/live-rates", async (req, res) => {
+  try {
+    const data = await getLiveEthUsdcRates();
+    res.json(data);
   } catch (error) {
     sendError(res, 500, error.message);
   }

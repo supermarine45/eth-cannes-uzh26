@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 
 const API_BASE = import.meta.env.VITE_AUTH_BASE_URL || ''
@@ -28,12 +28,10 @@ export default function TradeTab() {
   const [crossRate, setCrossRate] = useState(null)
   const [loadingCross, setLoadingCross] = useState(false)
 
-  // Uniswap quote
-  const [invoiceUSD, setInvoiceUSD] = useState('')
-  const [userWallet, setUserWallet] = useState('')
-  const [quote, setQuote] = useState(null)
-  const [loadingQuote, setLoadingQuote] = useState(false)
-  const [quoteError, setQuoteError] = useState(null)
+  // Live Uniswap swap rates
+  const [liveRates, setLiveRates] = useState(null)
+  const [loadingLiveRates, setLoadingLiveRates] = useState(false)
+  const [liveRatesError, setLiveRatesError] = useState('')
 
   // Fetch all commodity prices on mount
   useEffect(() => {
@@ -69,30 +67,44 @@ export default function TradeTab() {
     fetchCross()
   }, [selectedCommodity, selectedCrypto])
 
-  const handleGetQuote = async (e) => {
-    e.preventDefault()
-    setLoadingQuote(true)
-    setQuoteError(null)
-    setQuote(null)
-    try {
-      const res = await fetch(`${API_BASE}/api/checkout/quote`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoiceUSD: parseFloat(invoiceUSD),
-          userWallet,
-          token: 'ETH',
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Quote failed')
-      setQuote(data)
-    } catch (err) {
-      setQuoteError(err.message)
-    } finally {
-      setLoadingQuote(false)
+  useEffect(() => {
+    let isActive = true
+
+    const fetchLiveRates = async () => {
+      setLoadingLiveRates(true)
+      setLiveRatesError('')
+
+      try {
+        const res = await fetch(`${API_BASE}/api/uniswap/live-rates`)
+        const data = await res.json()
+
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to load live Uniswap rates')
+        }
+
+        if (isActive) {
+          setLiveRates(data)
+        }
+      } catch (error) {
+        if (isActive) {
+          setLiveRates(null)
+          setLiveRatesError(error.message)
+        }
+      } finally {
+        if (isActive) {
+          setLoadingLiveRates(false)
+        }
+      }
     }
-  }
+
+    fetchLiveRates()
+    const intervalId = window.setInterval(fetchLiveRates, 20_000)
+
+    return () => {
+      isActive = false
+      window.clearInterval(intervalId)
+    }
+  }, [])
 
   const priceFor = (key) => {
     const found = commodities.find((c) => c.commodity === key)
@@ -185,58 +197,51 @@ export default function TradeTab() {
 
       {/* Uniswap Swap Quote */}
       <div className="rounded-xl border border-border bg-background p-6">
-        <h3 className="font-semibold text-foreground mb-1">Uniswap Swap Quote</h3>
+        <div className="flex items-center justify-between gap-4 mb-1">
+          <h3 className="font-semibold text-foreground">Uniswap Swap Quote</h3>
+          {loadingLiveRates ? <span className="text-xs text-muted-foreground">Refreshing...</span> : null}
+        </div>
         <p className="text-xs text-muted-foreground mb-4">
-          Get a live ETH → USDC swap quote powered by Uniswap. Price from <span className="font-medium">Flare FTSO</span>.
+          Real-time ETH and USDC swap pricing is fetched from the backend and refreshed automatically.
         </p>
 
-        <form onSubmit={handleGetQuote} className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-foreground">Invoice Amount (USD)</label>
-              <input
-                type="number"
-                required
-                min="0.01"
-                step="0.01"
-                value={invoiceUSD}
-                onChange={(e) => setInvoiceUSD(e.target.value)}
-                placeholder="e.g. 25.00"
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-foreground">Your Wallet Address</label>
-              <input
-                type="text"
-                required
-                value={userWallet}
-                onChange={(e) => setUserWallet(e.target.value)}
-                placeholder="0x..."
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-mono text-foreground outline-none focus:ring-2 focus:ring-ring/40"
-              />
+        {liveRatesError ? <p className="mb-4 text-sm text-red-500">{liveRatesError}</p> : null}
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="rounded-xl border border-border bg-muted/20 p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">ETH to USDC</p>
+            <p className="mt-2 text-2xl font-bold text-foreground">
+              {liveRates?.ethToUsdc?.outputAmount ? `${Number(liveRates.ethToUsdc.outputAmount).toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC` : '—'}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              1 ETH swaps to the live USDC quote from Uniswap.
+            </p>
+            <div className="mt-3 text-xs text-muted-foreground">
+              <p>Gas fee: <span className="font-medium text-foreground">${liveRates?.ethToUsdc?.gasFeeUSD ?? '—'}</span></p>
+              <p>Routing: <span className="font-medium text-foreground">{liveRates?.ethToUsdc?.routing ?? '—'}</span></p>
             </div>
           </div>
 
-          {quoteError && <p className="text-sm text-red-500">{quoteError}</p>}
-
-          <Button type="submit" disabled={loadingQuote} className="w-full">
-            {loadingQuote ? 'Fetching quote...' : 'Get Uniswap Quote (ETH → USDC)'}
-          </Button>
-        </form>
-
-        {quote && (
-          <div className="mt-4 rounded-lg bg-muted/40 p-4 space-y-2 text-sm">
-            <p className="font-medium text-foreground">Quote Result</p>
-            <div className="grid gap-1 text-muted-foreground">
-              <p>ETH price (Flare FTSO): <span className="text-foreground font-medium">${quote.usdPrice?.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></p>
-              <p>ETH needed: <span className="text-foreground font-medium">{quote.tokenAmount?.toFixed(6)} ETH</span></p>
-              <p>USDC out: <span className="text-foreground font-medium">${quote.uniswap?.usdcOut}</span></p>
-              <p>Gas fee: <span className="text-foreground font-medium">${quote.uniswap?.gasFeeUSD}</span></p>
-              <p>Routing: <span className="text-foreground font-medium">{quote.uniswap?.routing}</span></p>
+          <div className="rounded-xl border border-border bg-muted/20 p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">USDC to ETH</p>
+            <p className="mt-2 text-2xl font-bold text-foreground">
+              {liveRates?.usdcToEth?.outputAmount ? `${Number(liveRates.usdcToEth.outputAmount).toLocaleString(undefined, { maximumFractionDigits: 8 })} ETH` : '—'}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              1 USDC swaps to the live ETH quote from Uniswap.
+            </p>
+            <div className="mt-3 text-xs text-muted-foreground">
+              <p>Gas fee: <span className="font-medium text-foreground">${liveRates?.usdcToEth?.gasFeeUSD ?? '—'}</span></p>
+              <p>Routing: <span className="font-medium text-foreground">{liveRates?.usdcToEth?.routing ?? '—'}</span></p>
             </div>
           </div>
-        )}
+        </div>
+
+        {liveRates?.fetchedAt ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Last updated: {new Date(liveRates.fetchedAt).toLocaleTimeString()}
+          </p>
+        ) : null}
       </div>
 
     </div>
