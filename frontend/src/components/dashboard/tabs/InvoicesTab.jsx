@@ -27,6 +27,7 @@ export default function InvoicesTab({ userWallet, isMerchant = false }) {
   useEffect(() => {
     if (!effectiveWallet) return
     fetchInvoices()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveWallet])
 
   const fetchInvoices = async () => {
