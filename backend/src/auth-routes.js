@@ -35,6 +35,28 @@ function normalizeAddress(value) {
   return ethers.getAddress(normalized).toLowerCase()
 }
 
+function normalizeAccountType(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+
+  if (!normalized) {
+    return 'individual'
+  }
+
+  if (normalized === 'business' || normalized === 'merchant') {
+    return 'business'
+  }
+
+  if (normalized === 'individual') {
+    return 'individual'
+  }
+
+  throw new Error('accountType must be individual, business, or merchant.')
+}
+
+function isBusinessAccountType(value) {
+  return normalizeAccountType(value) === 'business'
+}
+
 function base64UrlEncode(value) {
   return Buffer.from(value).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
 }
@@ -178,7 +200,9 @@ function normalizeWalletAddresses(walletAddresses) {
 
   const seen = new Set()
   return walletAddresses.map((entry, index) => {
-    const address = normalizeAddress(typeof entry === 'string' ? entry : entry?.address)
+    const address = normalizeAddress(
+      typeof entry === 'string' ? entry : (entry?.address ?? entry?.walletAddress ?? entry?.wallet_address),
+    )
 
     if (seen.has(address)) {
       throw new Error(`Duplicate wallet address: ${address}`)
@@ -197,9 +221,9 @@ function normalizeWalletAddresses(walletAddresses) {
 function validateOnboardingInput(body) {
   const fullName = String(body?.fullName || '').trim()
   const dateOfBirth = String(body?.dateOfBirth || '').trim()
-  const accountType = String(body?.accountType || '').trim() || 'individual'
-  const companyName = String(body?.companyName || '').trim()
-  const businessAddress = String(body?.businessAddress || '').trim()
+  const accountType = normalizeAccountType(body?.accountType ?? body?.account_type)
+  const companyName = String(body?.companyName ?? body?.company_name ?? '').trim()
+  const businessAddress = String(body?.businessAddress ?? body?.business_address ?? '').trim()
 
   if (!fullName) {
     throw new Error('fullName is required.')
@@ -207,10 +231,6 @@ function validateOnboardingInput(body) {
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
     throw new Error('dateOfBirth must use YYYY-MM-DD format.')
-  }
-
-  if (accountType !== 'individual' && accountType !== 'business') {
-    throw new Error('accountType must be individual or business.')
   }
 
   const dob = new Date(`${dateOfBirth}T00:00:00.000Z`)
@@ -226,11 +246,11 @@ function validateOnboardingInput(body) {
 
   if (accountType === 'business') {
     if (!companyName) {
-      throw new Error('companyName is required for business accounts.')
+      throw new Error('companyName is required for business or merchant accounts.')
     }
 
     if (!businessAddress) {
-      throw new Error('businessAddress is required for business accounts.')
+      throw new Error('businessAddress is required for business or merchant accounts.')
     }
   }
 
@@ -325,12 +345,29 @@ async function replaceWalletAddresses(profileId, walletAddresses) {
   return Array.isArray(rows) ? rows : []
 }
 
+function normalizeProfileForFrontend(profile) {
+  if (!profile) {
+    return null
+  }
+
+  const accountType = normalizeAccountType(profile.account_type)
+  const isMerchant = accountType === 'business'
+
+  return {
+    ...profile,
+    account_type: accountType,
+    accountType,
+    isMerchant,
+    merchantProfile: isMerchant,
+  }
+}
+
 function buildOnboardingRequired(profile) {
   return !profile
     || !profile.onboarding_completed_at
     || !profile.date_of_birth
     || !profile.account_type
-    || (profile.account_type === 'business' && (!profile.company_name || !profile.business_address))
+    || (isBusinessAccountType(profile.account_type) && (!profile.company_name || !profile.business_address))
 }
 
 function buildUserResponse({ user, provider, walletAddress }) {
@@ -356,12 +393,10 @@ function buildUserResponse({ user, provider, walletAddress }) {
 
 function buildOAuthUrl(redirectTo) {
   const authorizeUrl = new URL(buildAuthUrl('/authorize'))
-  const state = crypto.randomBytes(16).toString('hex')
   
   authorizeUrl.searchParams.set('provider', 'google')
   authorizeUrl.searchParams.set('redirect_to', redirectTo || getOptionalEnv('GOOGLE_REDIRECT_TO', 'http://localhost:5173/auth/callback'))
   authorizeUrl.searchParams.set('response_type', 'code')
-  authorizeUrl.searchParams.set('state', state)
   
   return authorizeUrl.toString()
 }
@@ -604,13 +639,14 @@ router.get('/me', async (req, res) => {
 
     const principalId = provider === 'metamask' ? `wallet:${String(user.walletAddress || user.id).toLowerCase()}` : user.id
     const profile = await getProfileByPrincipal(principalId)
+    const normalizedProfile = normalizeProfileForFrontend(profile)
     const walletAddresses = profile ? await getWalletAddressesByProfileId(profile.id) : []
 
     res.json({
       user: buildUserResponse({ user, provider, walletAddress: user.walletAddress || user.id }),
-      profile,
+      profile: normalizedProfile,
       walletAddresses,
-      onboardingRequired: buildOnboardingRequired(profile),
+      onboardingRequired: buildOnboardingRequired(normalizedProfile),
     })
   } catch (error) {
     res.status(401).json({ error: error.message })
@@ -639,7 +675,7 @@ router.post('/onboarding', async (req, res) => {
     }
 
     const parsed = validateOnboardingInput(req.body)
-    const walletAddresses = normalizeWalletAddresses(req.body?.walletAddresses)
+    const walletAddresses = normalizeWalletAddresses(req.body?.walletAddresses ?? req.body?.wallet_addresses)
     if (walletAddresses.length === 0) {
       throw new Error('walletAddresses must include at least one wallet.')
     }
@@ -658,10 +694,11 @@ router.post('/onboarding', async (req, res) => {
 
     const linkedWallets = await replaceWalletAddresses(profile.id, walletAddresses)
     const refreshedProfile = await getProfileByPrincipal(principalId)
+    const normalizedProfile = normalizeProfileForFrontend(refreshedProfile || profile)
 
     res.json({
       user: buildUserResponse({ user, provider, walletAddress: user.walletAddress || user.id }),
-      profile: refreshedProfile || profile,
+      profile: normalizedProfile,
       walletAddresses: linkedWallets,
       onboardingRequired: false,
     })

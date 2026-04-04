@@ -37,9 +37,24 @@ function parseOAuthCallbackSession() {
   const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
   const searchParams = new URLSearchParams(window.location.search)
   const code = searchParams.get('code') || hashParams.get('code')
+  const accessToken = hashParams.get('access_token') || searchParams.get('access_token')
+  const refreshToken = hashParams.get('refresh_token') || searchParams.get('refresh_token')
+  const expiresInRaw = hashParams.get('expires_in') || searchParams.get('expires_in')
+  const tokenType = hashParams.get('token_type') || searchParams.get('token_type') || 'bearer'
+  const expiresIn = expiresInRaw ? Number.parseInt(expiresInRaw, 10) : undefined
 
   if (!code) {
-    return null
+    if (!accessToken) {
+      return null
+    }
+
+    return {
+      provider: 'google',
+      accessToken,
+      refreshToken,
+      tokenType,
+      expiresIn: Number.isFinite(expiresIn) ? expiresIn : undefined,
+    }
   }
 
   return {
@@ -92,14 +107,17 @@ function AuthenticatedWorkspace({ route, navigate }) {
           </div>
         </header>
 
-        <div className="mt-8 grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-          <div className="space-y-6">
-            <AuthHeader />
+        <div className="mt-8 space-y-6">
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div>
+              <AuthHeader />
+            </div>
+
             <div className="rounded-3xl border border-border/70 bg-card/90 p-6 shadow-sm backdrop-blur md:p-7">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Getting Started</p>
               <div className="mt-3 grid gap-3 text-sm text-muted-foreground">
                 <p>Step 1: <span className="font-semibold text-foreground">Create your account</span></p>
-                <p>Step 2: <span className="font-semibold text-foreground">Complete your profile</span></p>
+                <p>Step 2: <span className="font-semibold text-foreground">Complete your profile setup</span></p>
                 <p>Step 3: <span className="font-semibold text-foreground">Access your dashboard</span></p>
               </div>
             </div>
@@ -150,8 +168,20 @@ export default function App() {
 
     const handleOAuthCallback = async () => {
       try {
-        const result = await exchangeOAuthCode(callbackSession.code, callbackSession.provider)
-        const nextSession = auth.normalizeAuthSessionPayload(result.session, callbackSession.provider)
+        let nextSession = null
+
+        if (callbackSession.code) {
+          const result = await exchangeOAuthCode(callbackSession.code, callbackSession.provider)
+          nextSession = auth.normalizeAuthSessionPayload(result.session, callbackSession.provider)
+        } else {
+          nextSession = auth.normalizeAuthSessionPayload({
+            access_token: callbackSession.accessToken,
+            refresh_token: callbackSession.refreshToken,
+            token_type: callbackSession.tokenType,
+            expires_in: callbackSession.expiresIn,
+          }, callbackSession.provider)
+        }
+
         applySession(nextSession)
         window.history.replaceState({}, '', '/auth/callback')
       } catch (error) {
