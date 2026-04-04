@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node index.js",
     "test": "node --check index.js && node --check walletconnect-pay.js && node --check initialize-wallet.js && node --check solidity-payments.js && node --check deploy-registry.js",
-    "deploy:registry": "node deploy-registry.js"
+    "deploy:registry": "node deploy-registry.js",
+    "deploy:invoices": "node src/deploy-invoice-registry.js"
   },
   "dependencies": {
     "@walletconnect/pay": "^1.0.8",
