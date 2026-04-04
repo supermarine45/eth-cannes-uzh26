@@ -10,17 +10,25 @@ import { useAuth } from '@/context/useAuth'
 
 const highlights = [
   {
-    title: 'Unified Payment Flows',
-    description: 'Placeholder: route users and merchants through one clean multi-step checkout product surface.',
+    title: 'Unified Wallet Identity',
+    description: 'Control all EVM and non-EVM wallets using a single profile.',
   },
   {
-    title: 'Automated Reconciliation',
-    description: 'Placeholder: monitor payment state and settlement events in real time from one dashboard.',
+    title: 'Dynamic Fiat Display',
+    description: 'See exact fiat equivalent pricing for cryptocurrency fetched live on our dashboard.',
   },
   {
-    title: 'Built For Scale',
-    description: 'Placeholder: support many merchants and chains without multiplying integration complexity.',
+    title: 'A Single Tap',
+    description: '“One tap” triggers automatic cross-chain swaps and precise conversion to complete payments with minimum fees.',
   },
+  {
+    title: 'Intelligent Subscriptions',
+    description: 'Set and forget payment system for recurring subscriptions with a predefined spending hierarchy.',
+  },
+  {
+    title: 'Merchant Stability and Trading Tools',
+    description: 'Receive stablecoins instantly, with optional hedging, auto-conversion, or forward contracts for inventory or pricing exposure.',
+  }
 ]
 
 function getRouteState() {
