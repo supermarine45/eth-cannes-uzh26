@@ -149,6 +149,10 @@ function buildAuthUrl(path) {
   return `${buildSupabaseBaseUrl()}/auth/v1${path}`
 }
 
+function buildAuthAdminUrl(path) {
+  return `${buildSupabaseBaseUrl()}/auth/v1/admin${path}`
+}
+
 function buildRestUrl(path) {
   return `${buildSupabaseBaseUrl()}/rest/v1/${trimLeadingSlash(path)}`
 }
@@ -187,6 +191,10 @@ async function supabaseRequest(path, { method = 'GET', body, accessToken, servic
 
 async function supabaseAuthRequest(path, options = {}) {
   return supabaseRequest(buildAuthUrl(path), options)
+}
+
+async function supabaseAdminAuthRequest(path, options = {}) {
+  return supabaseRequest(buildAuthAdminUrl(path), { ...options, serviceRole: true })
 }
 
 async function supabaseRestRequest(path, options = {}) {
@@ -294,6 +302,32 @@ async function getWalletAddressesByProfileId(profileId) {
   })
 
   return Array.isArray(data) ? data : []
+}
+
+async function deleteProfileByPrincipal(principalId) {
+  await supabaseRestRequest(`auth_user_profiles?principal_id=eq.${encodeURIComponent(principalId)}`, {
+    method: 'DELETE',
+  })
+}
+
+async function deleteWalletTrackingRows(walletAddresses) {
+  const uniqueWalletAddresses = Array.from(
+    new Set(
+      walletAddresses
+        .map((walletAddress) => String(walletAddress || '').trim().toLowerCase())
+        .filter((walletAddress) => /^0x[a-f0-9]{40}$/.test(walletAddress)),
+    ),
+  )
+
+  for (const walletAddress of uniqueWalletAddresses) {
+    await supabaseRestRequest(`wallet_users?wallet_address=eq.${encodeURIComponent(walletAddress)}`, {
+      method: 'DELETE',
+    })
+
+    await supabaseRestRequest(`auth_wallet_challenges?wallet_address=eq.${encodeURIComponent(walletAddress)}`, {
+      method: 'DELETE',
+    })
+  }
 }
 
 async function upsertProfile({ principalId, authProvider, fullName, dateOfBirth, accountType, companyName, businessAddress, email }) {
@@ -702,6 +736,55 @@ router.post('/onboarding', async (req, res) => {
       walletAddresses: linkedWallets,
       onboardingRequired: false,
     })
+  } catch (error) {
+    res.status(400).json({ error: error.message })
+  }
+})
+
+router.delete('/account', async (req, res) => {
+  try {
+    const accessToken = getBearerToken(req)
+    let user = null
+    let provider = 'email'
+
+    try {
+      user = await getSupabaseUser(accessToken)
+      provider = user.app_metadata?.provider || 'email'
+    } catch {
+      const walletPayload = verifyJwt(accessToken, getRequiredEnv('WALLET_AUTH_TOKEN_SECRET'))
+      provider = 'metamask'
+      user = {
+        id: walletPayload.sub,
+        email: null,
+        app_metadata: { provider: 'metamask' },
+        user_metadata: {},
+        walletAddress: walletPayload.walletAddress || walletPayload.sub,
+      }
+    }
+
+    const walletAddress = user.walletAddress || user.id
+    const principalId = provider === 'metamask' ? `wallet:${String(walletAddress).toLowerCase()}` : user.id
+    const profile = await getProfileByPrincipal(principalId)
+    const walletAddresses = profile ? await getWalletAddressesByProfileId(profile.id) : []
+    const linkedWalletAddresses = walletAddresses.map((entry) => entry.wallet_address).filter(Boolean)
+
+    if (provider === 'metamask') {
+      linkedWalletAddresses.push(walletAddress)
+    }
+
+    if (profile) {
+      await deleteProfileByPrincipal(principalId)
+    }
+
+    await deleteWalletTrackingRows(linkedWalletAddresses)
+
+    if (provider !== 'metamask') {
+      await supabaseAdminAuthRequest(`/users/${encodeURIComponent(user.id)}`, {
+        method: 'DELETE',
+      })
+    }
+
+    res.json({ ok: true })
   } catch (error) {
     res.status(400).json({ error: error.message })
   }
