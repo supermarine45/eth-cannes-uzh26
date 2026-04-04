@@ -8,8 +8,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --check index.js && node --check walletconnect-pay.js && node --check initialize-wallet.js && node --check solidity-payments.js && node --check deploy-registry.js",
-    "deploy:registry": "node deploy-registry.js"
+    "test": "node --check index.js && node --check src/walletconnect-pay.js && node --check src/initialize-wallet.js && node --check src/solidity-payments.js && node --check src/deploy-registry.js && node --check ens-commerce.js && node --check deploy-ens-registry.js && node --check src/auth-routes.js",
+    "deploy:registry": "node deploy-registry.js",
+    "deploy:ens-registry": "node deploy-ens-registry.js"
   },
   "dependencies": {
     "@walletconnect/pay": "^1.0.8",

@@ -81,6 +81,95 @@ Useful for validating a scanned QR string before fetching options. It returns th
 
 Open the backend in a browser after starting it. The server now serves a small demo UI from the `frontend` folder for inspecting links, fetching options, reading actions, and confirming a payment with pasted signatures.
 
+## ENS Reputation
+
+This repo also includes an ENS-linked reputation registry and backend API.
+
+### Backend env vars
+
+Set these in `backend/.env` before deploying or testing:
+
+```bash
+SOLIDITY_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/demo
+SOLIDITY_PRIVATE_KEY=0x...
+SOLIDITY_ENS_REPUTATION_REGISTRY_ADDRESS=0x...
+```
+
+### Deploy
+
+From the `backend` folder:
+
+```bash
+npm run deploy:ens-registry
+```
+
+The script prints the deployed contract address. Copy it into `SOLIDITY_ENS_REPUTATION_REGISTRY_ADDRESS`.
+
+### Smoke test sequence
+
+1. Start the backend from `backend/`:
+
+```bash
+npm start
+```
+
+2. Check health:
+
+```bash
+curl http://localhost:3000/api/ens/health
+```
+
+3. Register a profile:
+
+```bash
+curl -X POST http://localhost:3000/api/ens/register-profile \
+	-H "Content-Type: application/json" \
+	-d '{"ownerAddress":"0x1234567890123456789012345678901234567890","ensName":"alice.eth","profileURI":"ipfs://QmAlice"}'
+```
+
+4. Register a second profile for the reviewer:
+
+```bash
+curl -X POST http://localhost:3000/api/ens/register-profile \
+	-H "Content-Type: application/json" \
+	-d '{"ownerAddress":"0x9876543210987654321098765432109876543210","ensName":"bob.eth","profileURI":"ipfs://QmBob"}'
+```
+
+5. Submit a review:
+
+```bash
+curl -X POST http://localhost:3000/api/ens/give-feedback \
+	-H "Content-Type: application/json" \
+	-d '{"reviewerAddress":"0x9876543210987654321098765432109876543210","targetAddress":"0x1234567890123456789012345678901234567890","value":95,"valueDecimals":0,"tag1":"quality","tag2":"reliability","endpoint":"https://example.com/reviews","feedbackURI":"ipfs://QmReview1"}'
+```
+
+6. Read the stored review:
+
+```bash
+curl http://localhost:3000/api/ens/feedback/0x1234567890123456789012345678901234567890/0x9876543210987654321098765432109876543210/1
+```
+
+7. Read the aggregated summary:
+
+```bash
+curl -X POST http://localhost:3000/api/ens/summary \
+	-H "Content-Type: application/json" \
+	-d '{"targetAddress":"0x1234567890123456789012345678901234567890","reviewerAddresses":["0x9876543210987654321098765432109876543210"],"tag1":"quality","tag2":"reliability"}'
+```
+
+8. Discover profiles:
+
+```bash
+curl "http://localhost:3000/api/ens/discover?offset=0&limit=10"
+```
+
+Expected results:
+- `register-profile` returns a `txHash` and the ENS node hash.
+- `give-feedback` returns a `txHash` for the review transaction.
+- `feedback/.../1` returns the stored value and tags.
+- `summary` returns `count`, `total`, and `average` for the selected reviewers.
+- `discover` returns the registered profiles plus reviewer counts and summary data.
+
 ## Run with Docker
 
 Prerequisites:

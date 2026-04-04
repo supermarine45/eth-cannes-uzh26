@@ -12,10 +12,12 @@ const {
 const { createSolidityPaymentRegistry } = require("./src/solidity-payments");
 const { calculateTokenAmount } = require("./src/flare-service");
 const { buildSwapToUSDC, ETH_ADDRESS } = require("./src/uniswap-service");
+const { createEnsCommerceRegistry } = require("./ens-commerce");
 
 const app = express();
 const client = createWalletConnectPayClient();
 const paymentRegistry = createSolidityPaymentRegistry();
+const ensRegistry = createEnsCommerceRegistry();
 const port = Number(process.env.PORT || 3000);
 
 app.use(express.json({ limit: "1mb" }));
@@ -219,6 +221,120 @@ app.get("/api/solidity/health", async (req, res) => {
     res.json(health);
   } catch (error) {
     sendError(res, 500, error.message);
+  }
+});
+
+app.get("/api/ens/health", async (req, res) => {
+  try {
+    const health = await ensRegistry.health();
+    res.json(health);
+  } catch (error) {
+    sendError(res, 503, error.message);
+  }
+});
+
+app.post("/api/ens/register-profile", async (req, res) => {
+  try {
+    const { ownerAddress, ensName, ensNode, profileURI } = req.body ?? {};
+    if (!ownerAddress || !ensName) {
+      return sendError(res, 400, "ownerAddress and ensName required");
+    }
+    const result = await ensRegistry.registerProfile(ownerAddress, ensName, ensNode, profileURI);
+    res.json(result);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+app.post("/api/ens/update-profile", async (req, res) => {
+  try {
+    const { ownerAddress, ensName, ensNode, profileURI, active } = req.body ?? {};
+    if (!ownerAddress || !ensName) {
+      return sendError(res, 400, "ownerAddress and ensName required");
+    }
+    const result = await ensRegistry.updateProfile(ownerAddress, ensName, ensNode, profileURI, active);
+    res.json(result);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+app.get("/api/ens/profile/:ownerAddress", async (req, res) => {
+  try {
+    const result = await ensRegistry.getProfile(req.params.ownerAddress);
+    res.json(result);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+app.get("/api/ens/resolve/:ensNode", async (req, res) => {
+  try {
+    const result = await ensRegistry.resolveEnsNode(req.params.ensNode);
+    res.json({ ensNode: req.params.ensNode, owner: result });
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+app.post("/api/ens/give-feedback", async (req, res) => {
+  try {
+    const { reviewerAddress, targetAddress, value, valueDecimals, tag1, tag2, endpoint, feedbackURI } = req.body ?? {};
+    if (!reviewerAddress || !targetAddress || value === undefined) {
+      return sendError(res, 400, "reviewerAddress, targetAddress, and value required");
+    }
+    const result = await ensRegistry.giveFeedback(reviewerAddress, targetAddress, value, valueDecimals, tag1, tag2, endpoint, feedbackURI);
+    res.json(result);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+app.post("/api/ens/revoke-feedback", async (req, res) => {
+  try {
+    const { reviewerAddress, targetAddress, feedbackIndex } = req.body ?? {};
+    if (!reviewerAddress || !targetAddress || feedbackIndex === undefined) {
+      return sendError(res, 400, "reviewerAddress, targetAddress, and feedbackIndex required");
+    }
+    const result = await ensRegistry.revokeFeedback(reviewerAddress, targetAddress, feedbackIndex);
+    res.json(result);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+app.get("/api/ens/feedback/:targetAddress/:reviewerAddress/:feedbackIndex", async (req, res) => {
+  try {
+    const result = await ensRegistry.readFeedback(req.params.targetAddress, req.params.reviewerAddress, req.params.feedbackIndex);
+    res.json(result);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+app.post("/api/ens/summary", async (req, res) => {
+  try {
+    const { targetAddress, reviewerAddresses, tag1, tag2 } = req.body ?? {};
+    if (!targetAddress) {
+      return sendError(res, 400, "targetAddress required");
+    }
+    const result = await ensRegistry.getSummary(targetAddress, reviewerAddresses || [], tag1, tag2);
+    res.json(result);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+app.get("/api/ens/discover", async (req, res) => {
+  try {
+    const offset = req.query.offset ? parseInt(req.query.offset) : 0;
+    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const tag1 = req.query.tag1 || '';
+    const tag2 = req.query.tag2 || '';
+    const result = await ensRegistry.discoverProfiles(offset, limit, tag1, tag2);
+    res.json(result);
+  } catch (error) {
+    sendError(res, 400, error.message);
   }
 });
 

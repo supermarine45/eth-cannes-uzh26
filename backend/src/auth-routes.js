@@ -57,6 +57,47 @@ function isBusinessAccountType(value) {
   return normalizeAccountType(value) === 'business'
 }
 
+function logAuthEvent(eventName, details = {}) {
+  const timestamp = new Date().toISOString()
+  console.info(`[auth] ${eventName}`, JSON.stringify({ timestamp, ...details }))
+}
+
+function summarizeProfile(profile) {
+  if (!profile) {
+    return null
+  }
+
+  return {
+    id: profile.id,
+    principal_id: profile.principal_id,
+    auth_provider: profile.auth_provider,
+    full_name: profile.full_name,
+    account_type: profile.account_type,
+    company_name: profile.company_name,
+    business_address: profile.business_address,
+    email: profile.email,
+    onboarding_completed_at: profile.onboarding_completed_at,
+    created_at: profile.created_at,
+    updated_at: profile.updated_at,
+  }
+}
+
+function summarizeWalletAddress(entry) {
+  if (!entry) {
+    return null
+  }
+
+  return {
+    id: entry.id,
+    profile_id: entry.profile_id,
+    wallet_address: entry.wallet_address,
+    label: entry.label,
+    is_primary: entry.is_primary,
+    created_at: entry.created_at,
+    updated_at: entry.updated_at,
+  }
+}
+
 function base64UrlEncode(value) {
   return Buffer.from(value).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
 }
@@ -412,6 +453,11 @@ router.post('/signup/email', async (req, res) => {
       throw new Error('password must be at least 6 characters')
     }
 
+    logAuthEvent('signup.email.request', {
+      email: email.trim().toLowerCase(),
+      metadataKeys: metadata && typeof metadata === 'object' ? Object.keys(metadata) : [],
+    })
+
     const data = await supabaseAuthRequest('/signup', {
       method: 'POST',
       body: {
@@ -421,6 +467,13 @@ router.post('/signup/email', async (req, res) => {
           data: metadata && typeof metadata === 'object' ? metadata : {},
         },
       },
+    })
+
+    logAuthEvent('signup.email.response', {
+      email: email.trim().toLowerCase(),
+      hasSession: Boolean(data?.session),
+      provider: data?.user?.app_metadata?.provider || 'email',
+      userId: data?.user?.id || null,
     })
 
     res.json(data)
@@ -440,12 +493,23 @@ router.post('/login/email', async (req, res) => {
       throw new Error('password is required')
     }
 
+    logAuthEvent('login.email.request', {
+      email: email.trim().toLowerCase(),
+    })
+
     const session = await supabaseAuthRequest('/token?grant_type=password', {
       method: 'POST',
       body: {
         email: email.trim(),
         password,
       },
+    })
+
+    logAuthEvent('login.email.response', {
+      email: email.trim().toLowerCase(),
+      hasAccessToken: Boolean(session?.access_token),
+      userId: session?.user?.id || null,
+      provider: session?.user?.app_metadata?.provider || 'email',
     })
 
     res.json({ session })
@@ -461,11 +525,21 @@ router.post('/refresh', async (req, res) => {
       throw new Error('refreshToken is required')
     }
 
+    logAuthEvent('token.refresh.request', {
+      tokenLength: refreshToken.trim().length,
+    })
+
     const session = await supabaseAuthRequest('/token?grant_type=refresh_token', {
       method: 'POST',
       body: {
         refresh_token: refreshToken.trim(),
       },
+    })
+
+    logAuthEvent('token.refresh.response', {
+      hasAccessToken: Boolean(session?.access_token),
+      userId: session?.user?.id || null,
+      provider: session?.user?.app_metadata?.provider || 'email',
     })
 
     res.json({ session })
@@ -480,8 +554,19 @@ router.post('/google/url', async (req, res) => {
       ? req.body.redirectTo.trim()
       : getOptionalEnv('GOOGLE_REDIRECT_TO', 'http://localhost:5173/auth/callback')
 
+    logAuthEvent('google.url.request', {
+      redirectTo,
+    })
+
+    const url = buildOAuthUrl(redirectTo)
+
+    logAuthEvent('google.url.response', {
+      redirectTo,
+      hasUrl: Boolean(url),
+    })
+
     res.json({
-      url: buildOAuthUrl(redirectTo),
+      url,
     })
   } catch (error) {
     res.status(400).json({ error: error.message })
@@ -495,12 +580,22 @@ router.post('/google/callback', async (req, res) => {
       throw new Error('Authorization code is required')
     }
 
+    logAuthEvent('google.callback.request', {
+      codeLength: code.trim().length,
+    })
+
     // Exchange the code for a session using Supabase token endpoint
     const session = await supabaseAuthRequest('/token?grant_type=authorization_code', {
       method: 'POST',
       body: {
         code: code.trim(),
       },
+    })
+
+    logAuthEvent('google.callback.response', {
+      hasAccessToken: Boolean(session?.access_token),
+      userId: session?.user?.id || null,
+      provider: session?.user?.app_metadata?.provider || 'google',
     })
 
     res.json({ session })
@@ -516,6 +611,11 @@ router.post('/wallet/challenge', async (req, res) => {
     if (!Number.isFinite(chainId) || chainId <= 0) {
       throw new Error('chainId is required')
     }
+
+    logAuthEvent('wallet.challenge.request', {
+      address,
+      chainId,
+    })
 
     const nonce = crypto.randomBytes(16).toString('hex')
     const appName = getOptionalEnv('AUTH_APP_NAME', 'WalletConnect Pay')
@@ -534,6 +634,13 @@ router.post('/wallet/challenge', async (req, res) => {
       headers: {
         Prefer: 'return=representation',
       },
+    })
+
+    logAuthEvent('wallet.challenge.created', {
+      address,
+      chainId,
+      nonce,
+      expiresAt,
     })
 
     res.json({ address, nonce, message, chainId, expiresAt })
@@ -556,6 +663,11 @@ router.post('/wallet/verify', async (req, res) => {
       throw new Error('signature is required')
     }
 
+    logAuthEvent('wallet.verify.request', {
+      address,
+      nonce,
+    })
+
     const challengeRows = await supabaseRestRequest(`auth_wallet_challenges?wallet_address=eq.${encodeURIComponent(address)}&nonce=eq.${encodeURIComponent(nonce)}&used_at=is.null&select=*`, {
       method: 'GET',
     })
@@ -573,6 +685,12 @@ router.post('/wallet/verify', async (req, res) => {
     if (recoveredAddress !== address) {
       throw new Error('Signature does not match the requested wallet address.')
     }
+
+    logAuthEvent('wallet.verify.signed', {
+      address,
+      nonce,
+      challengeId: challenge.id,
+    })
 
     await supabaseRestRequest(`auth_wallet_challenges?id=eq.${challenge.id}`, {
       method: 'PATCH',
@@ -596,6 +714,12 @@ router.post('/wallet/verify', async (req, res) => {
       },
     })
 
+    logAuthEvent('wallet.verify.user_upserted', {
+      address,
+      walletUsersTable: 'public.wallet_users',
+      lastLoginAt: new Date().toISOString(),
+    })
+
     const secret = getRequiredEnv('WALLET_AUTH_TOKEN_SECRET')
     const ttlSeconds = parseDurationToSeconds(getOptionalEnv('WALLET_AUTH_TOKEN_TTL', '7d'), 7 * 24 * 60 * 60)
     const accessToken = signJwt({
@@ -604,6 +728,13 @@ router.post('/wallet/verify', async (req, res) => {
       authProvider: 'metamask',
       email: null,
     }, secret, ttlSeconds)
+
+    logAuthEvent('wallet.verify.response', {
+      address,
+      tokenType: 'bearer',
+      expiresIn: ttlSeconds,
+      hasAccessToken: Boolean(accessToken),
+    })
 
     res.json({
       accessToken,
@@ -625,6 +756,12 @@ router.get('/me', async (req, res) => {
     try {
       user = await getSupabaseUser(accessToken)
       provider = user.app_metadata?.provider || 'email'
+
+      logAuthEvent('me.supabase_user', {
+        provider,
+        userId: user.id,
+        email: user.email || null,
+      })
     } catch {
       const walletPayload = verifyJwt(accessToken, getRequiredEnv('WALLET_AUTH_TOKEN_SECRET'))
       provider = 'metamask'
@@ -635,12 +772,26 @@ router.get('/me', async (req, res) => {
         user_metadata: {},
         walletAddress: walletPayload.walletAddress || walletPayload.sub,
       }
+
+      logAuthEvent('me.wallet_user', {
+        provider,
+        userId: user.id,
+        walletAddress: user.walletAddress || user.id,
+      })
     }
 
     const principalId = provider === 'metamask' ? `wallet:${String(user.walletAddress || user.id).toLowerCase()}` : user.id
     const profile = await getProfileByPrincipal(principalId)
     const normalizedProfile = normalizeProfileForFrontend(profile)
     const walletAddresses = profile ? await getWalletAddressesByProfileId(profile.id) : []
+
+    logAuthEvent('me.response', {
+      principalId,
+      provider,
+      profile: summarizeProfile(normalizedProfile),
+      walletAddressCount: walletAddresses.length,
+      onboardingRequired: buildOnboardingRequired(normalizedProfile),
+    })
 
     res.json({
       user: buildUserResponse({ user, provider, walletAddress: user.walletAddress || user.id }),
@@ -662,6 +813,12 @@ router.post('/onboarding', async (req, res) => {
     try {
       user = await getSupabaseUser(accessToken)
       provider = user.app_metadata?.provider || 'email'
+
+      logAuthEvent('onboarding.supabase_user', {
+        provider,
+        userId: user.id,
+        email: user.email || null,
+      })
     } catch {
       const walletPayload = verifyJwt(accessToken, getRequiredEnv('WALLET_AUTH_TOKEN_SECRET'))
       provider = 'metamask'
@@ -672,6 +829,12 @@ router.post('/onboarding', async (req, res) => {
         user_metadata: {},
         walletAddress: walletPayload.walletAddress || walletPayload.sub,
       }
+
+      logAuthEvent('onboarding.wallet_user', {
+        provider,
+        userId: user.id,
+        walletAddress: user.walletAddress || user.id,
+      })
     }
 
     const parsed = validateOnboardingInput(req.body)
@@ -679,6 +842,15 @@ router.post('/onboarding', async (req, res) => {
     if (walletAddresses.length === 0) {
       throw new Error('walletAddresses must include at least one wallet.')
     }
+
+    logAuthEvent('onboarding.request', {
+      provider,
+      principalHint: provider === 'metamask' ? `wallet:${String(user.walletAddress || user.id).toLowerCase()}` : user.id,
+      fullName: parsed.fullName,
+      accountType: parsed.accountType,
+      walletAddressCount: walletAddresses.length,
+      primaryWalletAddress: walletAddresses.find((entry) => entry.is_primary)?.wallet_address || walletAddresses[0]?.wallet_address || null,
+    })
 
     const principalId = provider === 'metamask' ? `wallet:${String(user.walletAddress || user.id).toLowerCase()}` : user.id
     const profile = await upsertProfile({
@@ -695,6 +867,13 @@ router.post('/onboarding', async (req, res) => {
     const linkedWallets = await replaceWalletAddresses(profile.id, walletAddresses)
     const refreshedProfile = await getProfileByPrincipal(principalId)
     const normalizedProfile = normalizeProfileForFrontend(refreshedProfile || profile)
+
+    logAuthEvent('onboarding.response', {
+      provider,
+      principalId,
+      profile: summarizeProfile(normalizedProfile),
+      linkedWallets: linkedWallets.map(summarizeWalletAddress),
+    })
 
     res.json({
       user: buildUserResponse({ user, provider, walletAddress: user.walletAddress || user.id }),
