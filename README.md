@@ -80,3 +80,36 @@ Useful for validating a scanned QR string before fetching options. It returns th
 ## Demo
 
 Open the backend in a browser after starting it. The server now serves a small demo UI from the `frontend` folder for inspecting links, fetching options, reading actions, and confirming a payment with pasted signatures.
+
+## Run with Docker
+
+Prerequisites:
+- Docker Desktop installed and running.
+
+1. Create backend env file:
+	- Copy `backend/.env.auth.example` to `backend/.env`.
+	- Add WalletConnect values if needed:
+	  - `WALLETCONNECT_API_KEY=...` (preferred)
+	  - or `WALLETCONNECT_APP_ID=...`
+
+2. Create frontend env file:
+	- Copy `frontend/.env.example` to `frontend/.env`.
+	- For local Docker dev, keep:
+	  - `VITE_WALLETCONNECT_BASE_URL=http://localhost:3000`
+	  - `VITE_AUTH_BASE_URL=http://localhost:3000`
+
+3. From repo root, build and start containers:
+
+```bash
+docker compose up --build
+```
+
+4. Open the apps:
+	- Frontend: `http://localhost:5173`
+	- Backend health: `http://localhost:3000/health`
+
+5. Stop containers:
+
+```bash
+docker compose down
+```
