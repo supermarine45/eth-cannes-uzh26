@@ -79,6 +79,96 @@ app.get("/health", (req, res) => {
   res.json({ ok: true });
 });
 
+// POST /api/merchant/invoice
+// Body: { amountUSD: 23.47, referenceId: "order-123" }
+// Creates a WalletConnect Pay payment link for the merchant to send to user
+app.post("/api/merchant/invoice", async (req, res) => {
+  try {
+    const merchantId = process.env.WALLETCONNECT_MERCHANT_ID;
+    const customerApiKey = process.env.WALLETCONNECT_CUSTOMER_API_KEY;
+    const apiUrl = process.env.WALLETCONNECT_API_URL;
+
+    if (!merchantId || !customerApiKey) {
+      return sendError(res, 503, "Merchant credentials not configured. Set WALLETCONNECT_MERCHANT_ID and WALLETCONNECT_CUSTOMER_API_KEY.");
+    }
+
+    const { amountUSD, referenceId } = req.body ?? {};
+
+    if (!amountUSD || typeof amountUSD !== "number" || amountUSD <= 0) {
+      return sendError(res, 400, "amountUSD must be a positive number");
+    }
+
+    const ref = referenceId || `omni-${Date.now()}`;
+    const amountCents = Math.round(amountUSD * 100).toString();
+
+    const response = await fetch(`${apiUrl}/v1/merchant/payment`, {
+      method: "POST",
+      headers: {
+        "Api-Key": customerApiKey,
+        "Merchant-Id": merchantId,
+        "Content-Type": "application/json",
+        "Sdk-Name": "OmniCheckout",
+        "Sdk-Version": "1.0.0",
+        "Sdk-Platform": "web",
+      },
+      body: JSON.stringify({
+        referenceId: ref,
+        amount: {
+          value: amountCents,
+          unit: "iso4217/USD",
+        },
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return sendError(res, response.status, "WalletConnect merchant API error", data);
+    }
+
+    res.json({
+      paymentId: data.paymentId,
+      gatewayUrl: data.gatewayUrl,
+      expiresAt: data.expiresAt,
+      amountUSD,
+      referenceId: ref,
+    });
+  } catch (error) {
+    sendError(res, 500, error.message);
+  }
+});
+
+// GET /api/merchant/invoice/:paymentId/status
+// Poll payment status after invoice is created
+app.get("/api/merchant/invoice/:paymentId/status", async (req, res) => {
+  try {
+    const merchantId = process.env.WALLETCONNECT_MERCHANT_ID;
+    const customerApiKey = process.env.WALLETCONNECT_CUSTOMER_API_KEY;
+    const apiUrl = process.env.WALLETCONNECT_API_URL;
+
+    if (!merchantId || !customerApiKey) {
+      return sendError(res, 503, "Merchant credentials not configured.");
+    }
+
+    const response = await fetch(`${apiUrl}/v1/merchant/payment/${req.params.paymentId}/status`, {
+      headers: {
+        "Api-Key": customerApiKey,
+        "Merchant-Id": merchantId,
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return sendError(res, response.status, "WalletConnect merchant API error", data);
+    }
+
+    res.json(data);
+  } catch (error) {
+    sendError(res, 500, error.message);
+  }
+});
+
 // POST /api/checkout/quote
 // Body: { invoiceUSD: 23.47, userWallet: "0x...", token: "ETH" }
 // Calls Flare for live price, Uniswap to build swap tx, returns both
