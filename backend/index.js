@@ -11,6 +11,7 @@ const {
 const { createSolidityPaymentRegistry } = require("./solidity-payments");
 const { calculateTokenAmount } = require("./flare-service");
 const { buildSwapToUSDC, ETH_ADDRESS } = require("./uniswap-service");
+const { getCommodityUSDPrice, getCommodityInCrypto, getAllCommodityPrices } = require("./commodity-service");
 
 const app = express();
 const client = createWalletConnectPayClient();
@@ -166,6 +167,40 @@ app.get("/api/merchant/invoice/:paymentId/status", async (req, res) => {
     res.json(data);
   } catch (error) {
     sendError(res, 500, error.message);
+  }
+});
+
+// GET /api/commodity
+// Returns all commodity prices in USD at once
+app.get("/api/commodity", async (req, res) => {
+  try {
+    const data = await getAllCommodityPrices();
+    res.json(data);
+  } catch (error) {
+    sendError(res, 500, error.message);
+  }
+});
+
+// GET /api/commodity/:commodity
+// Returns USD price of a single commodity (GOLD, SILVER, OIL_WTI, etc.)
+app.get("/api/commodity/:commodity", async (req, res) => {
+  try {
+    const data = await getCommodityUSDPrice(req.params.commodity);
+    res.json(data);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+// GET /api/commodity/:commodity/in/:crypto
+// Returns cross-rate: how much crypto equals 1 unit of commodity
+// e.g. /api/commodity/gold/in/ETH → "1 Gold (troy oz) = 1.5 ETH"
+app.get("/api/commodity/:commodity/in/:crypto", async (req, res) => {
+  try {
+    const data = await getCommodityInCrypto(req.params.commodity, req.params.crypto);
+    res.json(data);
+  } catch (error) {
+    sendError(res, 400, error.message);
   }
 });
 
