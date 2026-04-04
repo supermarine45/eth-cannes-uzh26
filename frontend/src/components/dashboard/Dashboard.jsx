@@ -48,7 +48,7 @@ export default function Dashboard({ activeTab = 'wallet', onTabChange }) {
       case 'payees':   return <PayeesTab userWallet={userWallet} />
       case 'invoices': return <InvoicesTab userWallet={userWallet} isMerchant={isMerchant} />
       case 'bills':    return <BillsTab userWallet={userWallet} />
-      case 'ledger':   return <LedgerTab />
+      case 'ledger':   return <LedgerTab userWallet={userWallet} />
       case 'settings': return <SettingsTab />
       default:         return <WalletBalanceTab />
     }

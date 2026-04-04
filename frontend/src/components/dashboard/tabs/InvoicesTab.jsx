@@ -11,6 +11,11 @@ export default function InvoicesTab({ userWallet, isMerchant = false }) {
   const [error, setError] = useState(null)
   const [activePaymentId, setActivePaymentId] = useState(null)
   const [paymentStatus, setPaymentStatus] = useState(null)
+  // Fallback: merchant signed in via Google/email (no MetaMask linked to profile)
+  const [manualWallet, setManualWallet] = useState('')
+  const [manualWalletInput, setManualWalletInput] = useState('')
+
+  const effectiveWallet = userWallet || manualWallet
 
   const [formData, setFormData] = useState({
     description: '',
@@ -19,25 +24,26 @@ export default function InvoicesTab({ userWallet, isMerchant = false }) {
     dueDate: '',
   })
 
-  // Fetch merchant's outgoing invoices from chain
   useEffect(() => {
-    if (!userWallet) return
-    const fetchInvoices = async () => {
-      setFetching(true)
-      try {
-        const res = await fetch(`${API_BASE}/api/merchant/invoices?wallet=${userWallet}`)
-        if (res.ok) {
-          const data = await res.json()
-          setInvoices(data)
-        }
-      } catch {
-        // silently fail — on-chain registry may not be configured yet
-      } finally {
-        setFetching(false)
-      }
-    }
+    if (!effectiveWallet) return
     fetchInvoices()
-  }, [userWallet])
+  }, [effectiveWallet])
+
+  const fetchInvoices = async () => {
+    if (!effectiveWallet) return
+    setFetching(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/merchant/invoices?wallet=${effectiveWallet}`)
+      if (res.ok) {
+        const data = await res.json()
+        setInvoices(data)
+      }
+    } catch {
+      // silently fail — on-chain registry may not be configured yet
+    } finally {
+      setFetching(false)
+    }
+  }
 
   const handleGenerateInvoice = async (e) => {
     e.preventDefault()
@@ -50,7 +56,7 @@ export default function InvoicesTab({ userWallet, isMerchant = false }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amountUSD: parseFloat(formData.amount),
-          merchantWallet: userWallet,
+          merchantWallet: effectiveWallet,
           recipientWallet: formData.recipientWallet,
           description: formData.description,
           dueDate: formData.dueDate || null,
@@ -61,7 +67,7 @@ export default function InvoicesTab({ userWallet, isMerchant = false }) {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to create invoice')
 
-      // Prepend to local list immediately, then re-fetch from chain
+      // Prepend optimistically, then re-fetch from chain to get on-chain state
       setInvoices((prev) => [
         {
           id: prev.length,
@@ -73,7 +79,7 @@ export default function InvoicesTab({ userWallet, isMerchant = false }) {
           dueDate: formData.dueDate ? Math.floor(new Date(formData.dueDate).getTime() / 1000) : null,
           status: 'Pending',
           createdAt: Math.floor(Date.now() / 1000),
-          onChain: data.onChain,
+          onChain: !!data.onChain,
         },
         ...prev,
       ])
@@ -130,9 +136,25 @@ export default function InvoicesTab({ userWallet, isMerchant = false }) {
         </Button>
       </div>
 
-      {!userWallet && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
-          Connect your wallet to generate and view invoices.
+      {/* Wallet fallback for email/Google users */}
+      {!userWallet && !manualWallet && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+          <p className="text-sm text-amber-700">No wallet linked to your account. Enter your merchant wallet address to load invoices.</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={manualWalletInput}
+              onChange={(e) => setManualWalletInput(e.target.value)}
+              placeholder="0x..."
+              className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm font-mono text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+            />
+            <Button
+              onClick={() => setManualWallet(manualWalletInput.trim())}
+              disabled={!/^0x[a-fA-F0-9]{40}$/.test(manualWalletInput.trim())}
+            >
+              Load
+            </Button>
+          </div>
         </div>
       )}
 
@@ -190,7 +212,7 @@ export default function InvoicesTab({ userWallet, isMerchant = false }) {
 
           {error && <p className="text-sm text-red-500">{error}</p>}
 
-          <Button type="submit" className="w-full" disabled={loading}>
+          <Button type="submit" className="w-full" disabled={loading || !effectiveWallet}>
             {loading ? 'Creating invoice...' : 'Create Invoice → Store on Flare Coston2'}
           </Button>
         </form>
@@ -200,7 +222,12 @@ export default function InvoicesTab({ userWallet, isMerchant = false }) {
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="font-medium text-foreground">Sent Invoices</h3>
-          {fetching && <span className="text-xs text-muted-foreground">Loading from chain...</span>}
+          <div className="flex items-center gap-3">
+            {fetching && <span className="text-xs text-muted-foreground">Loading from chain...</span>}
+            {effectiveWallet && (
+              <button onClick={fetchInvoices} className="text-xs text-primary hover:underline">Refresh</button>
+            )}
+          </div>
         </div>
 
         {invoices.length > 0 ? (
@@ -224,6 +251,7 @@ export default function InvoicesTab({ userWallet, isMerchant = false }) {
                   {invoice.dueDate && (
                     <p className="mt-0.5 text-xs text-muted-foreground">Due: {formatDate(invoice.dueDate)}</p>
                   )}
+                  <p className="mt-0.5 text-xs text-muted-foreground">Created: {formatDate(invoice.createdAt)}</p>
                 </div>
                 <p className="text-lg font-semibold text-foreground">${Number(invoice.amountUSD).toFixed(2)}</p>
               </div>
@@ -240,8 +268,8 @@ export default function InvoicesTab({ userWallet, isMerchant = false }) {
                 </div>
               )}
 
-              <div className="flex gap-2 flex-wrap">
-                {invoice.gatewayUrl && !isMerchant && (
+              <div className="flex gap-2 flex-wrap items-center">
+                {invoice.gatewayUrl && (
                   <a href={invoice.gatewayUrl} target="_blank" rel="noopener noreferrer"
                     className="text-xs font-medium text-primary hover:underline">
                     Open payment page
@@ -260,7 +288,9 @@ export default function InvoicesTab({ userWallet, isMerchant = false }) {
           ))
         ) : (
           <div className="rounded-xl border border-dashed border-border bg-muted/30 p-8 text-center">
-            <p className="text-sm text-muted-foreground">No invoices yet. Generate one to get started.</p>
+            <p className="text-sm text-muted-foreground">
+              {effectiveWallet ? 'No invoices yet. Generate one to get started.' : 'Enter your wallet address above to load invoices.'}
+            </p>
           </div>
         )}
       </div>
