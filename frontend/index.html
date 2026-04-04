@@ -1,13 +1,128 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OmniCheckout</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="logo">Omni<span>Checkout</span></div>
+  <a href="/merchant.html">Merchant Demo →</a>
+</nav>
+
+<div class="hero">
+  <h1>Pay anything,<br/><span>from anywhere.</span></h1>
+  <p>
+    A universal tap-to-pay protocol. Connect multiple wallets, pay with any token,
+    merchants always receive USDC — instantly.
+  </p>
+
+  <div class="hero-cards">
+    <a class="hero-card" href="/merchant.html">
+      <div class="icon">🏪</div>
+      <h3>I'm a Merchant</h3>
+      <p>Generate an invoice and receive USDC settlement</p>
+    </a>
+    <a class="hero-card" href="/pay.html">
+      <div class="icon">👛</div>
+      <h3>I'm a User</h3>
+      <p>Pay with any token from any wallet</p>
+    </a>
+  </div>
+
+  <div class="tech-pills">
+    <span class="tech-pill">⚡ Flare FTSO</span>
+    <span class="tech-pill">🦄 Uniswap v4</span>
+    <span class="tech-pill">🔗 WalletConnect</span>
+    <span class="tech-pill">🌐 XRPL</span>
+    <span class="tech-pill">💵 USDC Settlement</span>
+  </div>
+</div>
+
+<div class="page-wide">
+  <div class="card">
+    <div class="card-title">How It Works</div>
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px; text-align:center;">
+      <div>
+        <div style="font-size:1.8rem; margin-bottom:8px;">🔗</div>
+        <div style="font-weight:600; margin-bottom:4px; font-size:0.9rem;">Connect Wallets</div>
+        <div style="color:var(--muted); font-size:0.8rem;">Link any EVM or XRPL wallet to your OmniCheckout profile</div>
+      </div>
+      <div>
+        <div style="font-size:1.8rem; margin-bottom:8px;">⚡</div>
+        <div style="font-weight:600; margin-bottom:4px; font-size:0.9rem;">Live Pricing</div>
+        <div style="color:var(--muted); font-size:0.8rem;">Flare FTSO fetches real-time exchange rates at checkout</div>
+      </div>
+      <div>
+        <div style="font-size:1.8rem; margin-bottom:8px;">🔀</div>
+        <div style="font-weight:600; margin-bottom:4px; font-size:0.9rem;">Auto Swap</div>
+        <div style="color:var(--muted); font-size:0.8rem;">Uniswap converts your tokens to USDC in one transaction</div>
+      </div>
+      <div>
+        <div style="font-size:1.8rem; margin-bottom:8px;">✅</div>
+        <div style="font-weight:600; margin-bottom:4px; font-size:0.9rem;">Instant Settlement</div>
+        <div style="color:var(--muted); font-size:0.8rem;">Merchant receives exact USDC amount, no volatility risk</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Live Backend Status</div>
+    <div class="data-row">
+      <span class="data-label">Server</span>
+      <span id="server-status"><span class="badge badge-warning">Checking...</span></span>
+    </div>
+    <div class="data-row">
+      <span class="data-label">Flare FTSO</span>
+      <span id="flare-status"><span class="badge badge-warning">Checking...</span></span>
+    </div>
+    <div class="data-row">
+      <span class="data-label">Uniswap API</span>
+      <span id="uniswap-status"><span class="badge badge-warning">Checking...</span></span>
+    </div>
+    <div class="data-row">
+      <span class="data-label">WalletConnect</span>
+      <span id="wc-status"><span class="badge badge-info">Via SDK</span></span>
+    </div>
+  </div>
+</div>
+
+<script>
+  async function checkStatus() {
+    // Server health
+    try {
+      const res = await fetch("/health");
+      const data = await res.json();
+      document.getElementById("server-status").innerHTML =
+        data.ok ? '<span class="badge badge-success">● Online</span>' : '<span class="badge badge-error">● Offline</span>';
+    } catch {
+      document.getElementById("server-status").innerHTML = '<span class="badge badge-error">● Offline</span>';
+    }
+
+    // Flare + Uniswap — test via checkout quote
+    try {
+      const res = await fetch("/api/checkout/quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoiceUSD: 1, userWallet: "0x0000000000000000000000000000000000000001", token: "ETH" })
+      });
+      const data = await res.json();
+      if (data.usdPrice) {
+        document.getElementById("flare-status").innerHTML =
+          `<span class="badge badge-success">● ETH $${data.usdPrice.toFixed(2)}</span>`;
+        document.getElementById("uniswap-status").innerHTML =
+          `<span class="badge badge-success">● ${data.uniswap?.routing}</span>`;
+      }
+    } catch {
+      document.getElementById("flare-status").innerHTML = '<span class="badge badge-error">● Error</span>';
+      document.getElementById("uniswap-status").innerHTML = '<span class="badge badge-error">● Error</span>';
+    }
+  }
+
+  checkStatus();
+</script>
+</body>
 </html>

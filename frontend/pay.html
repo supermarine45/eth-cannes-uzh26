@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pay — OmniCheckout</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<nav>
+  <a class="logo" href="/">Omni<span>Checkout</span></a>
+  <a href="/merchant.html">← Merchant</a>
+</nav>
+
+<div class="page">
+  <div class="page-header" style="margin-top:28px;">
+    <h2>👛 Pay Invoice</h2>
+    <p>Connect your wallet and approve the payment.</p>
+  </div>
+
+  <!-- Progress steps -->
+  <div class="steps">
+    <div class="step active" id="step-1"></div>
+    <div class="step" id="step-2"></div>
+    <div class="step" id="step-3"></div>
+  </div>
+
+  <!-- Step 1: Load Invoice -->
+  <div id="section-load">
+    <div class="card">
+      <div class="card-title">Step 1 — Load Invoice</div>
+
+      <div class="field">
+        <label>Your Wallet Address</label>
+        <input type="text" id="user-wallet" placeholder="0x..." />
+      </div>
+
+      <div class="field">
+        <label>Invoice Amount (USD)</label>
+        <input type="number" id="invoice-usd" placeholder="e.g. 23.47" min="0.01" step="0.01" />
+      </div>
+
+      <div class="field">
+        <label>Pay With</label>
+        <select id="pay-token">
+          <option value="ETH">ETH (Ethereum)</option>
+          <option value="XRP">XRP (XRP Ledger)</option>
+          <option value="BTC">BTC (Bitcoin)</option>
+        </select>
+      </div>
+
+      <div id="alert-load" class="alert"></div>
+
+      <button class="btn btn-primary" id="load-btn" onclick="loadInvoice()">
+        <span class="spinner" id="spinner-load"></span>
+        Get Live Quote
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 2: Review & Sign -->
+  <div id="section-review" style="display:none;">
+    <div class="card">
+      <div class="card-title">Step 2 — Review Payment</div>
+
+      <div class="amount-big">
+        <span id="pay-amount-display">$0.00</span>
+        <div class="currency" id="pay-token-display">ETH</div>
+      </div>
+
+      <hr class="divider" />
+
+      <div class="data-row">
+        <span class="data-label">You Send</span>
+        <span class="data-value" id="review-token-amount">—</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">Merchant Receives</span>
+        <span class="data-value success" id="review-usdc">—</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">Exchange Rate (Flare)</span>
+        <span class="data-value highlight" id="review-rate">—</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">Gas Fee</span>
+        <span class="data-value" id="review-gas">—</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">Network</span>
+        <span class="data-value">Base (Chain 8453)</span>
+      </div>
+      <div class="data-row">
+        <span class="data-label">Settlement</span>
+        <span class="data-value">Uniswap → USDC</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Wallet Breakdown</div>
+      <p style="font-size:0.85rem; color:var(--muted); margin-bottom:12px;">
+        OmniCheckout automatically selects the optimal combination from your connected wallets.
+      </p>
+      <div id="wallet-breakdown">
+        <div class="data-row">
+          <span class="data-label">Wallet (Primary)</span>
+          <span class="data-value" id="wallet-display">—</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">Token</span>
+          <span class="data-value" id="wallet-token">—</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">Amount</span>
+          <span class="data-value" id="wallet-amount">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="alert-review" class="alert"></div>
+
+    <button class="btn btn-success" id="approve-btn" onclick="approvePayment()">
+      <span class="spinner" id="spinner-approve"></span>
+      ✓ Approve Payment
+    </button>
+    <button class="btn btn-secondary" style="margin-top:8px;" onclick="resetFlow()">
+      ← Change Amount
+    </button>
+  </div>
+
+  <!-- Step 3: Success -->
+  <div id="section-success" style="display:none;">
+    <div class="card" style="text-align:center; padding: 40px 24px;">
+      <div style="font-size:4rem; margin-bottom:16px;">✅</div>
+      <h3 style="font-size:1.4rem; margin-bottom:8px;">Payment Approved</h3>
+      <p style="color:var(--muted); margin-bottom:24px;">
+        Your transaction has been signed and submitted to the network.
+      </p>
+
+      <div style="background:var(--surface2); border-radius:8px; padding:16px; text-align:left; margin-bottom:24px;">
+        <div class="data-row">
+          <span class="data-label">Status</span>
+          <span class="badge badge-success">● Submitted</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">Amount</span>
+          <span class="data-value success" id="success-amount">—</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">Transaction To</span>
+          <span class="data-value" id="success-tx-to" style="font-size:0.75rem;">—</span>
+        </div>
+      </div>
+
+      <a href="/merchant.html" class="btn btn-primary" style="display:inline-flex;">
+        New Invoice
+      </a>
+    </div>
+  </div>
+</div>
+
+<script>
+  let quoteData = null;
+
+  // Pre-fill from URL params (when coming from merchant page)
+  window.addEventListener("DOMContentLoaded", () => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("amount")) {
+      document.getElementById("invoice-usd").value = params.get("amount");
+    }
+    if (params.get("token")) {
+      document.getElementById("pay-token").value = params.get("token");
+    }
+  });
+
+  async function loadInvoice() {
+    const wallet = document.getElementById("user-wallet").value.trim();
+    const amount = parseFloat(document.getElementById("invoice-usd").value);
+    const token = document.getElementById("pay-token").value;
+
+    const alertEl = document.getElementById("alert-load");
+    alertEl.className = "alert";
+
+    if (!wallet || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
+      alertEl.className = "alert alert-error show";
+      alertEl.textContent = "Please enter a valid wallet address (0x...).";
+      return;
+    }
+    if (!amount || amount <= 0) {
+      alertEl.className = "alert alert-error show";
+      alertEl.textContent = "Please enter a valid invoice amount.";
+      return;
+    }
+
+    const btn = document.getElementById("load-btn");
+    const spinner = document.getElementById("spinner-load");
+    btn.disabled = true;
+    spinner.classList.add("show");
+
+    try {
+      const res = await fetch("/api/checkout/quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoiceUSD: amount, userWallet: wallet, token })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load invoice");
+
+      quoteData = data;
+      showReviewStep(data, wallet);
+
+    } catch (err) {
+      alertEl.className = "alert alert-error show";
+      alertEl.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+      spinner.classList.remove("show");
+    }
+  }
+
+  function showReviewStep(data, wallet) {
+    document.getElementById("section-load").style.display = "none";
+    document.getElementById("section-review").style.display = "block";
+    document.getElementById("step-1").classList.remove("active");
+    document.getElementById("step-1").classList.add("done");
+    document.getElementById("step-2").classList.add("active");
+
+    document.getElementById("pay-amount-display").textContent = `$${data.invoiceUSD.toFixed(2)}`;
+    document.getElementById("pay-token-display").textContent = `via ${data.token}`;
+    document.getElementById("review-token-amount").textContent = `${data.tokenAmount.toFixed(6)} ${data.token}`;
+    document.getElementById("review-usdc").textContent = `$${data.uniswap.usdcOut.toFixed(2)} USDC`;
+    document.getElementById("review-rate").textContent = `1 ${data.token} = $${data.usdPrice.toFixed(2)}`;
+    document.getElementById("review-gas").textContent = `~$${parseFloat(data.uniswap.gasFeeUSD).toFixed(4)}`;
+
+    const shortWallet = wallet.slice(0, 6) + "..." + wallet.slice(-4);
+    document.getElementById("wallet-display").textContent = shortWallet;
+    document.getElementById("wallet-token").textContent = data.token;
+    document.getElementById("wallet-amount").textContent = `${data.tokenAmount.toFixed(6)} ${data.token}`;
+  }
+
+  function approvePayment() {
+    if (!quoteData) return;
+
+    const btn = document.getElementById("approve-btn");
+    const spinner = document.getElementById("spinner-approve");
+    const alertEl = document.getElementById("alert-review");
+
+    btn.disabled = true;
+    spinner.classList.add("show");
+    alertEl.className = "alert alert-info show";
+    alertEl.textContent = "Submitting to WalletConnect for wallet signature...";
+
+    // Simulate wallet signing delay (in real app, WalletConnect SDK handles this)
+    setTimeout(() => {
+      showSuccessStep(quoteData);
+    }, 2000);
+  }
+
+  function showSuccessStep(data) {
+    document.getElementById("section-review").style.display = "none";
+    document.getElementById("section-success").style.display = "block";
+    document.getElementById("step-2").classList.remove("active");
+    document.getElementById("step-2").classList.add("done");
+    document.getElementById("step-3").classList.add("done");
+
+    document.getElementById("success-amount").textContent = `$${data.invoiceUSD.toFixed(2)} USDC`;
+    document.getElementById("success-tx-to").textContent = data.transaction?.to || "—";
+  }
+
+  function resetFlow() {
+    quoteData = null;
+    document.getElementById("section-review").style.display = "none";
+    document.getElementById("section-load").style.display = "block";
+    document.getElementById("step-1").classList.remove("done");
+    document.getElementById("step-1").classList.add("active");
+    document.getElementById("step-2").classList.remove("active");
+  }
+</script>
+</body>
+</html>
