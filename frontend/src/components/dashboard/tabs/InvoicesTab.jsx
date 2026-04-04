@@ -280,12 +280,7 @@ export default function InvoicesTab({ userWallet, isMerchant = false }) {
               )}
 
               <div className="flex gap-2 flex-wrap items-center">
-                {invoice.gatewayUrl && (
-                  <a href={invoice.gatewayUrl} target="_blank" rel="noopener noreferrer"
-                    className="text-xs font-medium text-primary hover:underline">
-                    Open payment page
-                  </a>
-                )}
+                
                 {invoice.gatewayUrl && !isMerchant && <span className="text-muted-foreground">·</span>}
                 <button onClick={() => pollStatus(invoice.paymentId)}
                   className="text-xs font-medium text-primary hover:underline">

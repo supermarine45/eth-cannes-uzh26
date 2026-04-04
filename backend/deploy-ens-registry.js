@@ -46,16 +46,16 @@ async function compileContract() {
 }
 
 async function deployContract() {
-  const rpcUrl = process.env.SOLIDITY_RPC_URL;
-  const privateKey = process.env.SOLIDITY_PRIVATE_KEY;
-  const registryOwner = process.env.SOLIDITY_REGISTRY_OWNER;
+  const rpcUrl = process.env.SOLIDITY_ENS_RPC_URL;
+  const privateKey = process.env.SOLIDITY_ENS_PRIVATE_KEY;
+  const registryOwner = process.env.SOLIDITY_ENS_REGISTRY_OWNER;
 
   if (!rpcUrl) {
-    throw new Error('SOLIDITY_RPC_URL environment variable not set');
+    throw new Error('SOLIDITY_ENS_RPC_URL environment variable not set');
   }
 
   if (!privateKey) {
-    throw new Error('SOLIDITY_PRIVATE_KEY environment variable not set');
+    throw new Error('SOLIDITY_ENS_PRIVATE_KEY environment variable not set');
   }
 
   console.log('[Deploy] Compiling contract...');

@@ -65,12 +65,12 @@ function normalizeSummary(count, totalScaled18, decimals) {
 }
 
 function createEnsCommerceRegistry() {
-  const rpcUrl = process.env.SOLIDITY_ENS_URL;
-  const privateKey = process.env.SOLIDITY_PRIVATE_KEY;
+  const rpcUrl = process.env.SOLIDITY_ENS_RPC_URL;
+  const privateKey = process.env.SOLIDITY_ENS_PRIVATE_KEY;
   const contractAddress = process.env.SOLIDITY_ENS_REPUTATION_REGISTRY_ADDRESS;
 
   if (!rpcUrl) {
-    console.warn('[ENS] SOLIDITY_ENS_URL not configured');
+    console.warn('[ENS] SOLIDITY_ENS_RPC_URL not configured');
   }
 
   if (!contractAddress) {
