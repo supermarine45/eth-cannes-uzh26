@@ -7,10 +7,10 @@ const {
   extractPaymentLinkDetails,
   isWalletConnectPaymentCandidate,
   normalizePaymentLinkInput,
-} = require("./walletconnect-pay");
-const { createSolidityPaymentRegistry } = require("./solidity-payments");
-const { calculateTokenAmount } = require("./flare-service");
-const { buildSwapToUSDC, ETH_ADDRESS } = require("./uniswap-service");
+} = require("./src/walletconnect-pay");
+const { createSolidityPaymentRegistry } = require("./src/solidity-payments");
+const { calculateTokenAmount } = require("./src/flare-service");
+const { buildSwapToUSDC, ETH_ADDRESS } = require("./src/uniswap-service");
 
 const app = express();
 const client = createWalletConnectPayClient();

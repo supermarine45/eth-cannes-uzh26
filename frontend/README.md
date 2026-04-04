@@ -15,14 +15,16 @@ The React Compiler is not enabled on this template because of its impact on dev 
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
 
-## Multi-Wallet Connection Interface
+## WalletConnect Pay Flow Interface
 
-This frontend now focuses on wallet connectivity and testnet transfers.
+This frontend now includes a WalletConnect connection and verification interface, plus two coordinated flow panels aligned to the backend WalletConnect Pay API:
 
-1. Connect using injected wallet providers (MetaMask, Coinbase Wallet, Rabby, Brave Wallet, Trust Wallet).
-2. Send a testnet transaction to a target EVM wallet address.
+1. User Flow: inspect payment link and fetch payment options.
+2. Merchant Flow: fetch required actions and confirm payment with signatures.
 
-The panel supports provider refresh, wallet connection, backend health checks, and testnet transfer flow.
+The connection panel verifies backend health, link validity, and wallet compatibility before flow actions.
+It also supports connecting with MetaMask to auto-fill wallet address and active chain id.
+You can also send a testnet transaction from MetaMask to a target MetaMask address in the same panel.
 
 ### Setup
 
@@ -33,5 +35,7 @@ The panel supports provider refresh, wallet connection, backend health checks, a
 
 Component breakdown:
 
-- `src/components/connection/WalletConnectConnectionPanel.jsx`: multi-provider wallet connection and transaction panel.
-- `src/lib/walletconnect.js`: backend health integration.
+- `src/components/connection/WalletConnectConnectionPanel.jsx`: wallet connection and verification panel.
+- `src/components/payments/UserPaymentPanel.jsx`: inspect link and payment options interface.
+- `src/components/payments/MerchantPaymentPanel.jsx`: payment actions and confirmation interface.
+- `src/lib/walletconnect.js`: API integration for backend WalletConnect flow routes.
