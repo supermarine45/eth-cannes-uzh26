@@ -139,7 +139,13 @@ app.post("/api/merchant/invoice", async (req, res) => {
 
     // Step 2: Write invoice to Coston2 on-chain registry (if wallets provided and registry configured)
     let onChain = null;
-    if (invoiceRegistry && merchantWallet && recipientWallet) {
+    let onChainWarning = null;
+
+    if (!invoiceRegistry) {
+      onChainWarning = "On-chain registry not configured (INVOICE_REGISTRY_ADDRESS missing). Recipient won't see this in Bills.";
+    } else if (!merchantWallet || !recipientWallet) {
+      onChainWarning = `Invoice created but NOT stored on-chain: ${!merchantWallet ? "merchantWallet" : "recipientWallet"} is missing. Recipient won't see it in their Bills tab.`;
+    } else {
       try {
         onChain = await invoiceRegistry.createInvoice({
           merchant: merchantWallet,
@@ -152,7 +158,8 @@ app.post("/api/merchant/invoice", async (req, res) => {
         });
       } catch (chainErr) {
         console.error("On-chain invoice write failed:", chainErr.message);
-        // Don't fail the request — payment link still works
+        onChain = { error: chainErr.message };
+        onChainWarning = `Invoice created but on-chain storage failed: ${chainErr.message}. Recipient won't see it in Bills until resolved.`;
       }
     }
 
@@ -163,6 +170,7 @@ app.post("/api/merchant/invoice", async (req, res) => {
       amountUSD,
       referenceId: ref,
       onChain,
+      onChainWarning,
     });
   } catch (error) {
     sendError(res, 500, error.message);
