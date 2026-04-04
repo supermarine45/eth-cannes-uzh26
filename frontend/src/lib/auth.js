@@ -1,13 +1,15 @@
 const AUTH_BASE_URL = import.meta.env.VITE_AUTH_BASE_URL
 
-const AUTH_SIGNUP_EMAIL_PATH = import.meta.env.VITE_AUTH_SIGNUP_EMAIL_PATH ?? '/api/auth/signup/email'
-const AUTH_LOGIN_EMAIL_PATH = import.meta.env.VITE_AUTH_LOGIN_EMAIL_PATH ?? '/api/auth/login/email'
-const AUTH_GOOGLE_URL_PATH = import.meta.env.VITE_AUTH_GOOGLE_URL_PATH ?? '/api/auth/google/url'
-const AUTH_WALLET_CHALLENGE_PATH = import.meta.env.VITE_AUTH_WALLET_CHALLENGE_PATH ?? '/api/auth/wallet/challenge'
-const AUTH_WALLET_VERIFY_PATH = import.meta.env.VITE_AUTH_WALLET_VERIFY_PATH ?? '/api/auth/wallet/verify'
-const AUTH_ME_PATH = import.meta.env.VITE_AUTH_ME_PATH ?? '/api/auth/me'
-const AUTH_ONBOARDING_PATH = import.meta.env.VITE_AUTH_ONBOARDING_PATH ?? '/api/auth/onboarding'
-const AUTH_REFRESH_PATH = import.meta.env.VITE_AUTH_REFRESH_PATH ?? '/api/auth/refresh'
+const AUTH_SIGNUP_EMAIL_PATH = '/api/auth/signup/email'
+const AUTH_LOGIN_EMAIL_PATH = '/api/auth/login/email'
+const AUTH_GOOGLE_URL_PATH = '/api/auth/google/url'
+const AUTH_WALLET_CHALLENGE_PATH = '/api/auth/wallet/challenge'
+const AUTH_WALLET_VERIFY_PATH = '/api/auth/wallet/verify'
+const AUTH_ME_PATH = '/api/auth/me'
+const AUTH_ONBOARDING_PATH = '/api/auth/onboarding'
+const AUTH_REFRESH_PATH = '/api/auth/refresh'
+
+const DEV_AUTH_BASE_URL = 'http://localhost:3000'
 
 function trimTrailingSlash(value) {
   return value?.replace(/\/+$/, '') ?? ''
@@ -28,9 +30,31 @@ function buildUrl(path) {
   return `${baseUrl}/${normalizedPath}`
 }
 
-function buildSameOriginUrl(path) {
-  const normalizedPath = trimLeadingSlash(path)
-  return `/${normalizedPath}`
+function buildDevFallbackUrl(path) {
+  return `${DEV_AUTH_BASE_URL}/${trimLeadingSlash(path)}`
+}
+
+async function fetchWithFallbacks(urls, options, fallbackMessage) {
+  let lastError = null
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, options)
+      if (response.status !== 404) {
+        return response
+      }
+
+      lastError = { response, url }
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  if (lastError?.response) {
+    return lastError.response
+  }
+
+  throw new Error(fallbackMessage)
 }
 
 async function request(path, options = {}) {
@@ -40,35 +64,39 @@ async function request(path, options = {}) {
   }
 
   const primaryUrl = buildUrl(path)
-  const sameOriginUrl = buildSameOriginUrl(path)
-  let response
+  const devFallbackUrl = buildDevFallbackUrl(path)
+  const requestOptions = {
+    ...options,
+    headers,
+  }
 
-  try {
-    response = await fetch(primaryUrl, {
-      ...options,
-      headers,
-    })
-  } catch {
-    const canRetryViaProxy = Boolean(AUTH_BASE_URL) && primaryUrl !== sameOriginUrl
+  const primaryTargets = [primaryUrl]
+  if (!primaryTargets.includes(devFallbackUrl)) {
+    primaryTargets.push(devFallbackUrl)
+  }
 
-    if (canRetryViaProxy) {
-      try {
-        response = await fetch(sameOriginUrl, {
-          ...options,
-          headers,
-        })
-      } catch {
-        throw new Error(
-          `Network error calling auth API (${primaryUrl}). Ensure backend is running and allow requests from the frontend origin.`,
-        )
-      }
-    } else {
-      throw new Error(
-        `Network error calling auth API (${primaryUrl}). Ensure backend is running and reachable from the browser.`,
-      )
+  const authResponse = await fetchWithFallbacks(
+    primaryTargets,
+    requestOptions,
+    `Network error calling auth API (${primaryUrl}). Ensure backend is running and reachable from the browser.`,
+  )
+
+  if (authResponse.status === 404 && devFallbackUrl !== primaryUrl) {
+    const fallbackResponse = await fetchWithFallbacks(
+      [devFallbackUrl],
+      requestOptions,
+      `Network error calling auth API (${devFallbackUrl}). Ensure backend is running and reachable from the browser.`,
+    )
+
+    if (fallbackResponse.status !== 404) {
+      return await parseAuthResponse(fallbackResponse, primaryUrl)
     }
   }
 
+  return parseAuthResponse(authResponse, primaryUrl)
+}
+
+async function parseAuthResponse(response) {
   const text = await response.text()
   let data = null
 
@@ -146,5 +174,13 @@ export function refreshAuthSession(refreshToken) {
   return request(AUTH_REFRESH_PATH, {
     method: 'POST',
     body: JSON.stringify({ refreshToken }),
+  })
+}
+
+export function exchangeOAuthCode(code, provider = 'google') {
+  const exchangePath = `/api/auth/${provider}/callback`
+  return request(exchangePath, {
+    method: 'POST',
+    body: JSON.stringify({ code }),
   })
 }

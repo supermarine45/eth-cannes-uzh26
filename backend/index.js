@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const path = require("path");
+const { router: authRouter } = require("./src/auth-routes");
 const {
   buildAccounts,
   createWalletConnectPayClient,
@@ -18,6 +19,21 @@ const paymentRegistry = createSolidityPaymentRegistry();
 const port = Number(process.env.PORT || 3000);
 
 app.use(express.json({ limit: "1mb" }));
+app.use((req, res, next) => {
+  const allowedOrigin = process.env.CORS_ORIGIN || "*";
+  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+    return;
+  }
+
+  next();
+});
+app.use("/api/auth", authRouter);
 app.use(express.static(path.join(__dirname, "..", "frontend")));
 
 function sendError(res, statusCode, message, details) {
@@ -257,8 +273,44 @@ app.use((req, res) => {
 });
 
 if (require.main === module) {
-  app.listen(port, () => {
-    console.log(`WalletConnect Pay backend listening on port ${port}`);
+  const server = app.listen(port, () => {
+    console.log(`✓ WalletConnect Pay backend listening on port ${port}`);
+    console.log(`✓ Server is ready to accept connections`);
+  });
+
+  server.on('error', (error) => {
+    console.error('Server Error:', error);
+    process.exit(1);
+  });
+
+  // Handle uncaught exceptions
+  process.on('uncaughtException', (error) => {
+    console.error('✗ Uncaught Exception:', error.message);
+    console.error(error.stack);
+    process.exit(1);
+  });
+
+  // Handle unhandled promise rejections
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('✗ Unhandled Rejection:', reason);
+    process.exit(1);
+  });
+
+  // Keep the server alive
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM received, closing gracefully...');
+    server.close(() => {
+      console.log('Server closed');
+      process.exit(0);
+    });
+  });
+
+  process.on('SIGINT', () => {
+    console.log('SIGINT received, closing gracefully...');
+    server.close(() => {
+      console.log('Server closed');
+      process.exit(0);
+    });
   });
 }
 
