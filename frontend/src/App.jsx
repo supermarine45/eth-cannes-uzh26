@@ -291,7 +291,7 @@ export default function App() {
             </div>
 
             <p className="animate-fade-in-up animate-delay-2 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-              Placeholder intro copy: this landing page will introduce your product value, explain how merchants and users interact, and guide visitors toward account creation.
+              Enabling users to pay and accept in their choice of cryptocurrency or stablecoins. One Wallet. One Tap Payments. One Dashboard. No tap Subscription Payments. Hedging, Stablecoin-to-Crypto Autoconversion, Forward Contracts, and more.
             </p>
 
             <div className="animate-fade-in-up animate-delay-3 flex flex-wrap gap-3">
