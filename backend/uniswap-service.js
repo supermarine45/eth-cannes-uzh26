@@ -1,4 +1,5 @@
-const UNISWAP_API_KEY = process.env.UNISWAP_API_KEY || "";
+const UNISWAP_API_KEY = process.env.UNISWAP_API_KEY;
+if (!UNISWAP_API_KEY) throw new Error("UNISWAP_API_KEY not set in .env");
 const BASE_URL = "https://trade-api.gateway.uniswap.org/v1";
 
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
