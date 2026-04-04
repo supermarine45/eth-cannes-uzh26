@@ -9,6 +9,7 @@ export default function InvoicesTab({ userWallet }) {
   const [loading, setLoading] = useState(false)
   const [fetching, setFetching] = useState(false)
   const [error, setError] = useState(null)
+  const [onChainWarning, setOnChainWarning] = useState(null)
   const [activePaymentId, setActivePaymentId] = useState(null)
   const [paymentStatus, setPaymentStatus] = useState(null)
   // Fallback: merchant signed in via Google/email (no MetaMask linked to profile)
@@ -67,6 +68,9 @@ export default function InvoicesTab({ userWallet }) {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to create invoice')
 
+      if (data.onChainWarning) setOnChainWarning(data.onChainWarning)
+      else setOnChainWarning(null)
+
       // Prepend optimistically, then re-fetch from chain to get on-chain state
       setInvoices((prev) => [
         {
@@ -79,7 +83,7 @@ export default function InvoicesTab({ userWallet }) {
           dueDate: formData.dueDate ? Math.floor(new Date(formData.dueDate).getTime() / 1000) : null,
           status: 'Pending',
           createdAt: Math.floor(Date.now() / 1000),
-          onChain: !!data.onChain,
+          onChain: !!(data.onChain && !data.onChain.error),
         },
         ...prev,
       ])
@@ -216,6 +220,12 @@ export default function InvoicesTab({ userWallet }) {
             {loading ? 'Creating invoice...' : 'Create Invoice → Store on Flare Coston2'}
           </Button>
         </form>
+      )}
+
+      {onChainWarning && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+          ⚠️ {onChainWarning}
+        </div>
       )}
 
       {/* Invoice List */}

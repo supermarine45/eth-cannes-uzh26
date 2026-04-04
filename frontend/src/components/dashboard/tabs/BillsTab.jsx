@@ -41,16 +41,22 @@ export default function BillsTab({ userWallet }) {
   const [loading, setLoading] = useState(false)
   const [payingId, setPayingId] = useState(null)
   const [txResults, setTxResults] = useState({})
+  // Fallback for email/Google users with no MetaMask linked to profile
+  const [manualWallet, setManualWallet] = useState('')
+  const [manualWalletInput, setManualWalletInput] = useState('')
+
+  const effectiveWallet = userWallet || manualWallet
 
   useEffect(() => {
-    if (!userWallet) return
+    if (!effectiveWallet) return
     fetchBills()
-  }, [userWallet])
+  }, [effectiveWallet])
 
   const fetchBills = async () => {
+    if (!effectiveWallet) return
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/api/bills?wallet=${userWallet}`)
+      const res = await fetch(`${API_BASE}/api/bills?wallet=${effectiveWallet}`)
       if (res.ok) {
         const data = await res.json()
         setBills(data)
@@ -145,9 +151,31 @@ export default function BillsTab({ userWallet }) {
         </p>
       </div>
 
-      {!userWallet ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
-          Connect your wallet to view bills sent to you.
+      {/* Wallet fallback for email/Google users */}
+      {!userWallet && !manualWallet && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+          <p className="text-sm text-amber-700">No wallet linked to your account. Enter your wallet address to view bills sent to you.</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={manualWalletInput}
+              onChange={(e) => setManualWalletInput(e.target.value)}
+              placeholder="0x..."
+              className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm font-mono text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+            />
+            <Button
+              onClick={() => setManualWallet(manualWalletInput.trim())}
+              disabled={!/^0x[a-fA-F0-9]{40}$/.test(manualWalletInput.trim())}
+            >
+              Load
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {!effectiveWallet ? (
+        <div className="rounded-xl border border-dashed border-border bg-muted/30 p-8 text-center">
+          <p className="text-sm text-muted-foreground">Enter your wallet address above to view bills.</p>
         </div>
       ) : (
         <>
