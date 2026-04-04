@@ -46,7 +46,7 @@ export default function Dashboard() {
       case 'payments': return <PaymentsTab />
       case 'invoices': return <InvoicesTab userWallet={userWallet} />
       case 'bills':    return <BillsTab userWallet={userWallet} />
-      case 'ledger':   return <LedgerTab />
+      case 'ledger':   return <LedgerTab userWallet={userWallet} />
       case 'settings': return <SettingsTab />
       default:         return <WalletBalanceTab />
     }

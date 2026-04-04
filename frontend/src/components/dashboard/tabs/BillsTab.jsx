@@ -8,9 +8,8 @@ const BASE_CHAIN_ID = '0x2105' // 8453 in hex
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 const USDC_DECIMALS = 6
 
-// Encode ERC20 transfer(address, uint256) calldata without ethers dependency
 function encodeUSDCTransfer(toAddress, amountUSD) {
-  const selector = 'a9059cbb' // transfer(address,uint256)
+  const selector = 'a9059cbb'
   const paddedTo = toAddress.slice(2).toLowerCase().padStart(64, '0')
   const amountRaw = BigInt(Math.round(amountUSD * 10 ** USDC_DECIMALS))
   const paddedAmount = amountRaw.toString(16).padStart(64, '0')
@@ -41,26 +40,27 @@ export default function BillsTab({ userWallet }) {
   const [bills, setBills] = useState([])
   const [loading, setLoading] = useState(false)
   const [payingId, setPayingId] = useState(null)
-  const [txResults, setTxResults] = useState({}) // paymentId → { hash, error }
+  const [txResults, setTxResults] = useState({})
 
   useEffect(() => {
     if (!userWallet) return
-    const fetchBills = async () => {
-      setLoading(true)
-      try {
-        const res = await fetch(`${API_BASE}/api/bills?wallet=${userWallet}`)
-        if (res.ok) {
-          const data = await res.json()
-          setBills(data)
-        }
-      } catch {
-        // registry not yet configured
-      } finally {
-        setLoading(false)
-      }
-    }
     fetchBills()
   }, [userWallet])
+
+  const fetchBills = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/bills?wallet=${userWallet}`)
+      if (res.ok) {
+        const data = await res.json()
+        setBills(data)
+      }
+    } catch {
+      // registry not yet configured
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handlePayWithMetaMask = async (bill) => {
     if (!window.ethereum) {
@@ -91,17 +91,23 @@ export default function BillsTab({ userWallet }) {
       const data = encodeUSDCTransfer(bill.merchant, bill.amountUSD)
       const txHash = await window.ethereum.request({
         method: 'eth_sendTransaction',
-        params: [{
-          from,
-          to: USDC_BASE,
-          data,
-          chainId: BASE_CHAIN_ID,
-        }],
+        params: [{ from, to: USDC_BASE, data, chainId: BASE_CHAIN_ID }],
       })
+
+      // 4. Mark as Paid on-chain in our registry
+      try {
+        await fetch(`${API_BASE}/api/merchant/invoice/${bill.paymentId}/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'Paid' }),
+        })
+      } catch {
+        // non-critical — tx went through, status update is best-effort
+      }
 
       setTxResults((prev) => ({ ...prev, [bill.paymentId]: { hash: txHash } }))
 
-      // 4. Mark as paid in local state
+      // 5. Update local state
       setBills((prev) =>
         prev.map((b) => b.paymentId === bill.paymentId ? { ...b, status: 'Paid' } : b)
       )
@@ -159,7 +165,10 @@ export default function BillsTab({ userWallet }) {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="font-medium text-foreground">Incoming Invoices</h3>
-              {loading && <span className="text-xs text-muted-foreground">Loading from chain...</span>}
+              <div className="flex items-center gap-3">
+                {loading && <span className="text-xs text-muted-foreground">Loading from chain...</span>}
+                <button onClick={fetchBills} className="text-xs text-primary hover:underline">Refresh</button>
+              </div>
             </div>
 
             {bills.length > 0 ? (
@@ -189,31 +198,19 @@ export default function BillsTab({ userWallet }) {
                       <p className="text-lg font-semibold text-foreground">${Number(bill.amountUSD).toFixed(2)} USDC</p>
                     </div>
 
-                    {/* Transaction result */}
                     {txResult?.hash && (
                       <div className="rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-xs text-green-700">
                         Payment sent!{' '}
-                        <a
-                          href={`https://basescan.org/tx/${txResult.hash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-mono underline"
-                        >
+                        <a href={`https://basescan.org/tx/${txResult.hash}`} target="_blank" rel="noopener noreferrer"
+                          className="font-mono underline">
                           View on Basescan
                         </a>
                       </div>
                     )}
-                    {txResult?.error && (
-                      <p className="text-xs text-red-500">{txResult.error}</p>
-                    )}
+                    {txResult?.error && <p className="text-xs text-red-500">{txResult.error}</p>}
 
-                    {/* Pay button */}
                     {bill.status === 'Pending' && !txResult?.hash && (
-                      <Button
-                        className="w-full"
-                        disabled={isPaying}
-                        onClick={() => handlePayWithMetaMask(bill)}
-                      >
+                      <Button className="w-full" disabled={isPaying} onClick={() => handlePayWithMetaMask(bill)}>
                         {isPaying ? 'Waiting for MetaMask...' : `Pay $${Number(bill.amountUSD).toFixed(2)} USDC with MetaMask`}
                       </Button>
                     )}
