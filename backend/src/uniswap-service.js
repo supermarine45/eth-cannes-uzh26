@@ -6,7 +6,17 @@ const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const ETH_ADDRESS = "0x0000000000000000000000000000000000000000";
 const BASE_CHAIN_ID = 8453;
 
-async function buildSwapToUSDC(userWallet, tokenIn, usdcAmount) {
+function formatUnits(rawAmount, decimals) {
+  if (!rawAmount) return "0";
+  const raw = BigInt(String(rawAmount));
+  const base = 10n ** BigInt(decimals);
+  const whole = raw / base;
+  const frac = (raw % base).toString().padStart(decimals, "0").replace(/0+$/, "");
+  return frac ? `${whole}.${frac}` : whole.toString();
+}
+
+async function buildSwapToUSDC(userWallet, tokenIn, usdcAmount, tokenInDecimals = 18) {
+  // EXACT_OUTPUT: amount is the USDC output (always 6 decimals)
   const amountSmallest = Math.round(usdcAmount * 1_000_000).toString();
 
   const quoteRes = await fetch(`${BASE_URL}/quote`, {
@@ -27,29 +37,6 @@ async function buildSwapToUSDC(userWallet, tokenIn, usdcAmount) {
   const quoteData = await quoteRes.json();
   if (!quoteData.quote) throw new Error(`Uniswap quote failed: ${JSON.stringify(quoteData)}`);
 
-<<<<<<< Updated upstream
-=======
-  return {
-    inputAmount: formatUnitsFromRaw(quoteData.quote.input?.amount, tokenInDecimals),
-    outputAmount: formatUnitsFromRaw(quoteData.quote.output?.amount, tokenOutDecimals),
-    gasFeeUSD: quoteData.quote.gasFeeUSD,
-    routing: quoteData.routing,
-    raw: quoteData.quote,
-  };
-}
-
-async function buildSwapToUSDC(userWallet, tokenIn, usdcAmount, tokenInDecimals = 18) {
-  const quoteData = await requestUniswapQuote({
-    tokenIn,
-    tokenOut: USDC_BASE,
-    tokenInDecimals,
-    tokenOutDecimals: 6,
-    amount: usdcAmount,
-    type: "EXACT_OUTPUT",
-    swapper: userWallet,
-  });
-
->>>>>>> Stashed changes
   const swapRes = await fetch(`${BASE_URL}/swap`, {
     method: "POST",
     headers: { "x-api-key": UNISWAP_API_KEY, "Content-Type": "application/json" },
@@ -62,7 +49,7 @@ async function buildSwapToUSDC(userWallet, tokenIn, usdcAmount, tokenInDecimals 
   return {
     quote: {
       tokenIn,
-      tokenInAmount: quoteData.quote.input.amount,
+      tokenInAmount: formatUnits(quoteData.quote.input?.amount, tokenInDecimals),
       usdcOut: usdcAmount,
       gasFeeUSD: quoteData.quote.gasFeeUSD,
       routing: quoteData.routing,
