@@ -24,10 +24,6 @@ const highlights = [
   {
     title: 'Intelligent Subscriptions',
     description: 'Set and forget payment system for recurring subscriptions with a predefined spending hierarchy.',
-  },
-  {
-    title: 'Merchant Stability and Trading Tools',
-    description: 'Receive stablecoins instantly, with optional hedging, auto-conversion, or forward contracts for inventory or pricing exposure.',
   }
 ]
 
@@ -235,7 +231,7 @@ export default function App() {
               </div>
 
               <p className="animate-fade-in-up animate-delay-2 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-                Enabling users to pay and accept in their choice of cryptocurrency or stablecoins. One Wallet. One Tap Payments. One Dashboard. No tap Subscription Payments. Hedging, Stablecoin-to-Crypto Autoconversion, Forward Contracts, and more.
+                Enabling users to pay and accept in their choice of cryptocurrency or stablecoins. One Wallet. One Tap Payments. One Dashboard. No tap Subscription Payments. Hedging, Stablecoin-to-Crypto Autoconversion and more.
               </p>
 
               <div className="animate-fade-in-up animate-delay-3 flex flex-wrap gap-3">
