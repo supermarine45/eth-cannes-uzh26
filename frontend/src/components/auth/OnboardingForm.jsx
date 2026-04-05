@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/useAuth'
-import { normalizeCannesEnsName } from '@/lib/ens'
+import { normalizeCannesEnsName, registerEnsProfileWithMetaMask } from '@/lib/ens'
 
 const label = 'mb-1 block text-sm font-medium text-foreground'
 const input = 'w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground/80 focus:border-ring focus:ring-2 focus:ring-ring/40'
@@ -11,11 +11,17 @@ function getBestInjectedProvider() {
     return null
   }
 
+  if (window.ethereum?.isMetaMask) {
+    return window.ethereum
+  }
+
   const providers = Array.isArray(window.ethereum.providers) && window.ethereum.providers.length > 0
     ? window.ethereum.providers
     : [window.ethereum]
 
-  return providers.find((provider) => provider?.isMetaMask) ?? null
+  return providers.find((provider) => provider?.isMetaMask)
+    ?? providers.find((provider) => typeof provider?.request === 'function')
+    ?? null
 }
 
 const TOKEN_CONFIG_BY_CHAIN = {
@@ -107,6 +113,14 @@ function normalizeAddress(value) {
   return trimmed.toLowerCase()
 }
 
+function sanitizeCannesUsername(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  return normalized
+    .replace(/\.cannes$/i, '')
+    .split('.')[0]
+    .replace(/[^a-z0-9]/g, '')
+}
+
 function resolvePrefillName({ profile, session, user }) {
   if (profile?.full_name) {
     return profile.full_name
@@ -152,7 +166,7 @@ export default function OnboardingForm() {
   const [emailAddress, setEmailAddress] = useState('')
   const [appPassword, setAppPassword] = useState('')
   const [confirmAppPassword, setConfirmAppPassword] = useState('')
-  const [ensName, setEnsName] = useState('')
+  const [ensUsername, setEnsUsername] = useState('')
   const [dateOfBirth, setDateOfBirth] = useState('')
   const [accountType, setAccountType] = useState('individual')
   const [companyName, setCompanyName] = useState('')
@@ -193,7 +207,7 @@ export default function OnboardingForm() {
       setFullName(isMetaMaskSignup ? '' : resolvePrefillName({ profile, session, user }))
       setEmailAddress(String(profile.email || user?.email || session?.user?.email || '').trim())
       setDateOfBirth(profile.date_of_birth ?? '')
-      setEnsName(profile.ens_name ?? '')
+      setEnsUsername(sanitizeCannesUsername(profile.ens_name ?? ''))
       setAccountType(profile.account_type ?? 'individual')
       setCompanyName(profile.company_name ?? '')
       setBusinessAddress(profile.business_address ?? '')
@@ -339,8 +353,31 @@ export default function OnboardingForm() {
       }
 
       const normalizedEnsName = normalizeCannesEnsName(ensName)
+      const primaryWallet = wallets.find((entry) => entry.isPrimary)?.address || wallets[0]?.address
+
+      if (!primaryWallet) {
+        throw new Error('Primary wallet is required to register ENS on-chain.')
+      }
+
+      const injectedProvider = getBestInjectedProvider()
+      if (!injectedProvider) {
+        throw new Error('No injected wallet provider found. Install/unlock MetaMask and reload this page to register ENS on-chain.')
+      }
+
+      await injectedProvider.request({ method: 'eth_requestAccounts' })
+
+      // Register ENS profile via MetaMask
+      if (normalizedEnsName) {
+        await registerEnsProfileWithMetaMask({
+          ethereumProvider: injectedProvider,
+          ensName: normalizedEnsName,
+          profileURI: '',
+          expectedOwnerAddress: primaryWallet,
+        })
+      }
 
       await saveOnboarding({
+        syncEnsOnchain: false,
         authProvider: session?.provider,
         fullName: isMetaMaskSignup ? null : fullName,
         dateOfBirth,
@@ -400,19 +437,26 @@ export default function OnboardingForm() {
         </div>
 
         <div>
-          <label className={label} htmlFor="ensName">ENS Name</label>
-          <input
-            id="ensName"
-            className={input}
-            value={ensName}
-            onChange={(event) => setEnsName(event.target.value)}
-            placeholder="yourname.cannes"
-            required
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck="false"
-          />
-          <p className="mt-1 text-xs text-muted-foreground">Required. Use letters or numbers, then .cannes.</p>
+          <label className={label} htmlFor="ensName">Cool Username</label>
+          <div className="relative">
+            <input
+              id="ensName"
+              className={`${input} pr-24`}
+              value={ensUsername}
+              onChange={(event) => setEnsUsername(sanitizeCannesUsername(event.target.value))}
+              placeholder="username"
+              required
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck="false"
+            />
+            {ensUsername ? (
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                .cannes
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">Must!!</p>
         </div>
 
         {requiresAppPassword ? (
@@ -466,7 +510,7 @@ export default function OnboardingForm() {
               Business
             </Button>
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">This selection is used to tailor features and use cases.</p>
+          
         </div>
 
         {accountType === 'business' ? (

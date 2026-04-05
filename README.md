@@ -124,7 +124,7 @@ curl http://localhost:3000/api/ens/health
 ```bash
 curl -X POST http://localhost:3000/api/ens/register-profile \
 	-H "Content-Type: application/json" \
-	-d '{"ownerAddress":"0x1234567890123456789012345678901234567890","ensName":"alice.eth","profileURI":"ipfs://QmAlice"}'
+	-d '{"ownerAddress":"0x1234567890123456789012345678901234567890","ensName":"alice.cannes","profileURI":"ipfs://QmAlice"}'
 ```
 
 4. Register a second profile for the reviewer:
@@ -132,7 +132,7 @@ curl -X POST http://localhost:3000/api/ens/register-profile \
 ```bash
 curl -X POST http://localhost:3000/api/ens/register-profile \
 	-H "Content-Type: application/json" \
-	-d '{"ownerAddress":"0x9876543210987654321098765432109876543210","ensName":"bob.eth","profileURI":"ipfs://QmBob"}'
+	-d '{"ownerAddress":"0x9876543210987654321098765432109876543210","ensName":"bob.cannes","profileURI":"ipfs://QmBob"}'
 ```
 
 5. Submit a review:

@@ -79,16 +79,9 @@ export default function Dashboard({ activeTab = 'wallet', onTabChange }) {
             <Button 
               variant="outline" 
               className="px-5" 
-              onClick={() => { clearSession('Session cleared.'); window.location.href = '/auth?mode=login' }}
+              onClick={() => { clearSession('Logged out.'); window.location.href = '/' }}
             >
-              Switch Account
-            </Button>
-            <Button 
-              variant="outline" 
-              className="px-5" 
-              onClick={() => { clearSession('Session cleared.'); window.location.href = '/auth?mode=signup' }}
-            >
-              New Account
+              Logout
             </Button>
           </div>
         </div>

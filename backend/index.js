@@ -548,12 +548,12 @@ app.get("/api/ens/health", async (req, res) => {
 
 app.post("/api/ens/register-profile", async (req, res) => {
   try {
-    const { ownerAddress, ensName, ensNode, profileURI } = req.body ?? {};
-    if (!ownerAddress || !ensName) {
-      return sendError(res, 400, "ownerAddress and ensName required");
+    const { ensName, ensNode, profileURI } = req.body ?? {};
+    if (!ensName) {
+      return sendError(res, 400, "ensName required");
     }
     const normalizedEnsName = normalizeCannesEnsName(ensName);
-    const result = await ensRegistry.registerProfile(ownerAddress, normalizedEnsName, ensNode, profileURI);
+    const result = await ensRegistry.registerProfile(normalizedEnsName, ensNode, profileURI);
     res.json(result);
   } catch (error) {
     sendError(res, 400, error.message);

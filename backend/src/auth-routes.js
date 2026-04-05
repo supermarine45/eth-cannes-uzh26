@@ -1,9 +1,11 @@
 const crypto = require('crypto')
 const express = require('express')
 const { ethers } = require('ethers')
+const { createEnsCommerceRegistry } = require('../ens-commerce')
 const { normalizeCannesEnsName } = require('./ens-name')
 
 const router = express.Router()
+const ensRegistry = createEnsCommerceRegistry()
 
 function getRequiredEnv(name) {
   const value = process.env[name]
@@ -293,13 +295,14 @@ function validateOnboardingInput(body, provider = 'email') {
   const companyName = String(body?.companyName ?? body?.company_name ?? '').trim()
   const businessAddress = String(body?.businessAddress ?? body?.business_address ?? '').trim()
   const ensName = normalizeCannesEnsName(body?.ensName ?? body?.ens_name)
+  const appPassword = String(body?.appPassword ?? body?.app_password ?? '').trim()
 
   if (provider !== 'metamask' && !fullName) {
     throw new Error('fullName is required.')
   }
 
-  if ((provider === 'google' || provider === 'metamask') && appPassword.length < 8) {
-    throw new Error('Password is required and must be at least 8 characters for Google/MetaMask accounts.')
+  if (appPassword && appPassword.length < 8) {
+    throw new Error('Password must be at least 8 characters.')
   }
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
@@ -355,6 +358,35 @@ function hashAppPassword(password) {
   return `scrypt:${salt.toString('hex')}:${hash.toString('hex')}`
 }
 
+function verifyAppPassword(password, hashValue) {
+  const normalizedPassword = String(password || '').trim()
+  if (!normalizedPassword || !hashValue) {
+    return false
+  }
+
+  const parts = String(hashValue).split(':')
+  if (parts.length !== 3 || parts[0] !== 'scrypt') {
+    return false
+  }
+
+  const saltHex = parts[1]
+  const expectedHex = parts[2]
+
+  try {
+    const salt = Buffer.from(saltHex, 'hex')
+    const expected = Buffer.from(expectedHex, 'hex')
+    const actual = crypto.scryptSync(normalizedPassword, salt, expected.length)
+
+    if (expected.length !== actual.length) {
+      return false
+    }
+
+    return crypto.timingSafeEqual(expected, actual)
+  } catch {
+    return false
+  }
+}
+
 function getBearerToken(req) {
   const header = String(req.headers.authorization || '')
   const match = header.match(/^Bearer\s+(.+)$/i)
@@ -378,6 +410,53 @@ async function getProfileByPrincipal(principalId) {
   })
 
   return Array.isArray(data) && data.length > 0 ? data[0] : null
+}
+
+async function getProfileById(profileId) {
+  const data = await supabaseRestRequest(`auth_user_profiles?id=eq.${encodeURIComponent(profileId)}&select=*`, {
+    method: 'GET',
+  })
+
+  return Array.isArray(data) && data.length > 0 ? data[0] : null
+}
+
+async function updateProfileById(profileId, patch) {
+  const rows = await supabaseRestRequest(`auth_user_profiles?id=eq.${encodeURIComponent(profileId)}&select=*`, {
+    method: 'PATCH',
+    body: {
+      ...patch,
+      updated_at: new Date().toISOString(),
+    },
+    headers: {
+      Prefer: 'return=representation',
+    },
+  })
+
+  return Array.isArray(rows) && rows.length > 0 ? rows[0] : null
+}
+
+async function getProfileByWalletAddress(walletAddress) {
+  const normalizedAddress = normalizeAddress(walletAddress)
+  const rows = await supabaseRestRequest(`auth_user_wallet_addresses?wallet_address=eq.${encodeURIComponent(normalizedAddress)}&select=profile_id`, {
+    method: 'GET',
+  })
+
+  const profileId = Array.isArray(rows) && rows.length > 0 ? rows[0]?.profile_id : null
+  if (!profileId) {
+    return null
+  }
+
+  return getProfileById(profileId)
+}
+
+async function resolveProfileForWalletSession(walletAddress) {
+  const normalizedAddress = normalizeAddress(walletAddress)
+  const principalProfile = await getProfileByPrincipal(`wallet:${normalizedAddress}`)
+  if (principalProfile) {
+    return principalProfile
+  }
+
+  return getProfileByWalletAddress(normalizedAddress)
 }
 
 async function getWalletAddressesByProfileId(profileId) {
@@ -414,7 +493,7 @@ async function deleteWalletTrackingRows(walletAddresses) {
   }
 }
 
-async function upsertProfile({ principalId, authProvider, fullName, dateOfBirth, accountType, companyName, businessAddress, email, ensName }) {
+async function upsertProfile({ principalId, authProvider, fullName, dateOfBirth, accountType, companyName, businessAddress, email, ensName, appPasswordHash }) {
   const existingProfile = await getProfileByPrincipal(principalId)
   const nextEnsName = ensName ?? existingProfile?.ens_name ?? null
 
@@ -472,6 +551,42 @@ async function replaceWalletAddresses(profileId, walletAddresses) {
   return Array.isArray(rows) ? rows : []
 }
 
+function getPrimaryWalletAddress(walletAddresses) {
+  if (!Array.isArray(walletAddresses) || walletAddresses.length === 0) {
+    throw new Error('walletAddresses must include at least one wallet.')
+  }
+
+  return walletAddresses.find((entry) => entry.is_primary)?.wallet_address || walletAddresses[0].wallet_address
+}
+
+function isOnlyOwnerRevert(error) {
+  const message = String(error?.reason || error?.message || '').toLowerCase()
+  return message.includes('only owner')
+}
+
+async function syncEnsProfileOnchain({ ownerAddress, ensName }) {
+  try {
+    const existingProfile = await ensRegistry.getProfile(ownerAddress)
+    const hasExistingProfile = existingProfile?.owner && existingProfile.owner !== ethers.ZeroAddress
+
+    if (!hasExistingProfile) {
+      return ensRegistry.registerProfile(ownerAddress, ensName, null, '')
+    }
+
+    return ensRegistry.updateProfile(ownerAddress, ensName, existingProfile.ensNode, existingProfile.profileURI || '', existingProfile.active)
+  } catch (error) {
+    if (String(error?.message || '').toLowerCase().includes('profile not found')) {
+      return ensRegistry.registerProfile(ownerAddress, ensName, null, '')
+    }
+
+    if (isOnlyOwnerRevert(error)) {
+      throw new Error('On-chain ENS sync failed: backend signer is not the ENS registry owner. Set SOLIDITY_ENS_PRIVATE_KEY to the contract owner key or transfer registry ownership to the backend signer.')
+    }
+
+    throw error
+  }
+}
+
 function normalizeProfileForFrontend(profile) {
   if (!profile) {
     return null
@@ -479,10 +594,13 @@ function normalizeProfileForFrontend(profile) {
 
   const accountType = normalizeAccountType(profile.account_type)
   const isMerchant = accountType === 'business'
+  const hasAppPassword = Boolean(profile.app_password_hash)
 
   return {
     ...profile,
     app_password_hash: undefined,
+    has_app_password: hasAppPassword,
+    hasAppPassword,
     account_type: accountType,
     accountType,
     isMerchant,
@@ -499,15 +617,7 @@ function buildOnboardingRequired(profile) {
 }
 
 function isRegisteredProfile(profile, provider) {
-  if (!profile || !profile.onboarding_completed_at) {
-    return false
-  }
-
-  if ((provider === 'google' || provider === 'metamask') && !profile.app_password_hash) {
-    return false
-  }
-
-  return true
+  return Boolean(profile)
 }
 
 function buildUserResponse({ user, provider, walletAddress }) {
@@ -690,7 +800,7 @@ router.post('/google/url', async (req, res) => {
       url,
     })
   } catch (error) {
-    res.status(400).json({ error: error.message })
+    res.status(error.statusCode || 400).json({ error: error.message })
   }
 })
 
@@ -821,7 +931,7 @@ router.post('/wallet/verify', async (req, res) => {
     }
 
     if (mode === 'login') {
-      const existingProfile = await getProfileByPrincipal(`wallet:${address}`)
+      const existingProfile = await resolveProfileForWalletSession(address)
       if (!isRegisteredProfile(existingProfile, 'metamask')) {
         const loginError = new Error('Account not registered. Please sign up first.')
         loginError.statusCode = 403
@@ -924,7 +1034,9 @@ router.get('/me', async (req, res) => {
     }
 
     const principalId = provider === 'metamask' ? `wallet:${String(user.walletAddress || user.id).toLowerCase()}` : user.id
-    const profile = await getProfileByPrincipal(principalId)
+    const profile = provider === 'metamask'
+      ? await resolveProfileForWalletSession(user.walletAddress || user.id)
+      : await getProfileByPrincipal(principalId)
     const normalizedProfile = normalizeProfileForFrontend(profile)
     const walletAddresses = profile ? await getWalletAddressesByProfileId(profile.id) : []
 
@@ -985,6 +1097,8 @@ router.post('/onboarding', async (req, res) => {
     if (walletAddresses.length === 0) {
       throw new Error('walletAddresses must include at least one wallet.')
     }
+    const primaryWalletAddress = getPrimaryWalletAddress(walletAddresses)
+    const shouldSyncEnsOnchain = req.body?.syncEnsOnchain === true
 
     logAuthEvent('onboarding.request', {
       provider,
@@ -992,10 +1106,31 @@ router.post('/onboarding', async (req, res) => {
       fullName: parsed.fullName,
       accountType: parsed.accountType,
       walletAddressCount: walletAddresses.length,
-      primaryWalletAddress: walletAddresses.find((entry) => entry.is_primary)?.wallet_address || walletAddresses[0]?.wallet_address || null,
+      primaryWalletAddress,
+      syncEnsOnchain: shouldSyncEnsOnchain,
     })
 
+    if (shouldSyncEnsOnchain) {
+      const chainProfile = await syncEnsProfileOnchain({
+        ownerAddress: primaryWalletAddress,
+        ensName: parsed.ensName,
+      })
+
+      logAuthEvent('onboarding.ens_synced', {
+        provider,
+        ownerAddress: primaryWalletAddress,
+        ensName: parsed.ensName,
+        txHash: chainProfile?.txHash || chainProfile?.transactionHash || null,
+      })
+    }
+
     const principalId = provider === 'metamask' ? `wallet:${String(user.walletAddress || user.id).toLowerCase()}` : user.id
+    const existingProfile = await getProfileByPrincipal(principalId)
+    const requiresPasswordForRegistration = (provider === 'google' || provider === 'metamask') && !existingProfile?.app_password_hash
+    if (requiresPasswordForRegistration && !parsed.appPassword) {
+      throw new Error('Password is required and must be at least 8 characters for Google/MetaMask accounts.')
+    }
+
     const profile = await upsertProfile({
       principalId,
       authProvider: provider,
@@ -1006,7 +1141,7 @@ router.post('/onboarding', async (req, res) => {
       businessAddress: parsed.businessAddress,
       email: user.email || req.body?.email || null,
       ensName: parsed.ensName,
-      appPasswordHash: hashAppPassword(parsed.appPassword),
+      appPasswordHash: parsed.appPassword ? hashAppPassword(parsed.appPassword) : (existingProfile?.app_password_hash || null),
     })
 
     const linkedWallets = await replaceWalletAddresses(profile.id, walletAddresses)
@@ -1054,7 +1189,9 @@ router.delete('/account', async (req, res) => {
 
     const walletAddress = user.walletAddress || user.id
     const principalId = provider === 'metamask' ? `wallet:${String(walletAddress).toLowerCase()}` : user.id
-    const profile = await getProfileByPrincipal(principalId)
+    const profile = provider === 'metamask'
+      ? await resolveProfileForWalletSession(walletAddress)
+      : await getProfileByPrincipal(principalId)
     const walletAddresses = profile ? await getWalletAddressesByProfileId(profile.id) : []
     const linkedWalletAddresses = walletAddresses.map((entry) => entry.wallet_address).filter(Boolean)
 
@@ -1062,8 +1199,8 @@ router.delete('/account', async (req, res) => {
       linkedWalletAddresses.push(walletAddress)
     }
 
-    if (profile) {
-      await deleteProfileByPrincipal(principalId)
+    if (profile?.principal_id) {
+      await deleteProfileByPrincipal(profile.principal_id)
     }
 
     await deleteWalletTrackingRows(linkedWalletAddresses)
@@ -1083,6 +1220,73 @@ router.delete('/account', async (req, res) => {
     res.json({ ok: true })
   } catch (error) {
     res.status(400).json({ error: error.message })
+  }
+})
+
+router.post('/password/change', async (req, res) => {
+  try {
+    const accessToken = getBearerToken(req)
+    const currentPassword = String(req.body?.currentPassword || '').trim()
+    const nextPassword = String(req.body?.newPassword || '').trim()
+
+    if (nextPassword.length < 8) {
+      throw new Error('newPassword must be at least 8 characters')
+    }
+
+    let user = null
+    let provider = 'email'
+
+    try {
+      user = await getSupabaseUser(accessToken)
+      provider = user.app_metadata?.provider || 'email'
+    } catch {
+      const walletPayload = verifyJwt(accessToken, getRequiredEnv('WALLET_AUTH_TOKEN_SECRET'))
+      provider = 'metamask'
+      user = {
+        id: walletPayload.sub,
+        email: null,
+        walletAddress: walletPayload.walletAddress || walletPayload.sub,
+      }
+    }
+
+    if (provider === 'email') {
+      await supabaseAuthRequest('/user', {
+        method: 'PUT',
+        accessToken,
+        body: {
+          password: nextPassword,
+        },
+      })
+
+      return res.json({ ok: true })
+    }
+
+    const principalId = provider === 'metamask' ? `wallet:${String(user.walletAddress || user.id).toLowerCase()}` : user.id
+    const profile = provider === 'metamask'
+      ? await resolveProfileForWalletSession(user.walletAddress || user.id)
+      : await getProfileByPrincipal(principalId)
+
+    if (!profile) {
+      return res.status(404).json({ error: 'Account profile not found.' })
+    }
+
+    if (profile.app_password_hash) {
+      if (!currentPassword) {
+        throw new Error('currentPassword is required')
+      }
+
+      if (!verifyAppPassword(currentPassword, profile.app_password_hash)) {
+        throw new Error('Current password is incorrect.')
+      }
+    }
+
+    await updateProfileById(profile.id, {
+      app_password_hash: hashAppPassword(nextPassword),
+    })
+
+    res.json({ ok: true })
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message })
   }
 })
 
