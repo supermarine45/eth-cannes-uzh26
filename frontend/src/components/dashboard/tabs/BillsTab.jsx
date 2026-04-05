@@ -108,7 +108,8 @@ export default function BillsTab({ userWallet }) {
   const handleSmartRoute = async (bill) => {
     if (!window.ethereum) { alert('MetaMask not detected.'); return }
 
-    setRouteState(prev => ({ ...prev, [bill.paymentId]: { status: 'scanning', ranked: [], error: null } }))
+    const stateKey = bill.isSubscription ? (bill.lastPaymentId || bill.subscriptionId) : bill.paymentId
+    setRouteState(prev => ({ ...prev, [stateKey]: { status: 'scanning', ranked: [], error: null } }))
 
     try {
       const [from] = await window.ethereum.request({ method: 'eth_requestAccounts' })
@@ -140,17 +141,17 @@ export default function BillsTab({ userWallet }) {
 
       setRouteState(prev => ({
         ...prev,
-        [bill.paymentId]: { status: 'ready', ranked: data.ranked, error: null, selectedToken: selected, walletFrom: from },
+        [stateKey]: { status: 'ready', ranked: data.ranked, error: null, selectedToken: selected, walletFrom: from },
       }))
     } catch (err) {
-      setRouteState(prev => ({ ...prev, [bill.paymentId]: { status: 'error', ranked: [], error: err.message } }))
+      setRouteState(prev => ({ ...prev, [stateKey]: { status: 'error', ranked: [], error: err.message } }))
     }
   }
 
-  const selectRouteToken = (paymentId, token) => {
+  const selectRouteToken = (stateKey, token) => {
     setRouteState(prev => ({
       ...prev,
-      [paymentId]: { ...prev[paymentId], selectedToken: token },
+      [stateKey]: { ...prev[stateKey], selectedToken: token },
     }))
   }
 
@@ -158,12 +159,13 @@ export default function BillsTab({ userWallet }) {
   const handlePay = async (bill) => {
     if (!window.ethereum) { alert('MetaMask not detected.'); return }
 
-    const rs           = routeState[bill.paymentId]
+    const stateKey     = bill.isSubscription ? (bill.lastPaymentId || bill.subscriptionId) : bill.paymentId
+    const rs           = routeState[stateKey]
     const selectedToken = rs?.selectedToken || 'USDC'
     const selectedRoute = rs?.ranked?.find(r => r.token === selectedToken)
 
-    setPayingId(bill.paymentId)
-    setTxResults(prev => ({ ...prev, [bill.paymentId]: null }))
+    setPayingId(stateKey)
+    setTxResults(prev => ({ ...prev, [stateKey]: null }))
 
     try {
       const [from] = await window.ethereum.request({ method: 'eth_requestAccounts' })
@@ -216,18 +218,23 @@ export default function BillsTab({ userWallet }) {
       }
 
       // Mark Paid on Coston2
+      const invoiceId = bill.isSubscription ? bill.lastPaymentId : bill.paymentId
       try {
-        await fetch(`${API_BASE}/api/merchant/invoice/${bill.paymentId}/status`, {
+        await fetch(`${API_BASE}/api/merchant/invoice/${invoiceId}/status`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: 'Paid' }),
         })
       } catch { /* non-critical */ }
 
-      setTxResults(prev => ({ ...prev, [bill.paymentId]: { hash: txHash, token: selectedToken } }))
-      setBills(prev => prev.map(b => b.paymentId === bill.paymentId ? { ...b, status: 'Paid' } : b))
+      setTxResults(prev => ({ ...prev, [stateKey]: { hash: txHash, token: selectedToken } }))
+      setBills(prev => prev.map(b => {
+        if (bill.isSubscription && b.subscriptionId === bill.subscriptionId) return { ...b, status: 'Paid' }
+        if (!bill.isSubscription && b.paymentId === bill.paymentId) return { ...b, status: 'Paid' }
+        return b
+      }))
     } catch (err) {
-      setTxResults(prev => ({ ...prev, [bill.paymentId]: { error: err.message } }))
+      setTxResults(prev => ({ ...prev, [stateKey]: { error: err.message } }))
     } finally {
       setPayingId(null)
     }
@@ -243,10 +250,20 @@ export default function BillsTab({ userWallet }) {
 
   const statusColor = (s) => {
     const v = (s || '').toLowerCase()
-    if (v === 'paid' || v === 'active') return 'bg-green-100 text-green-700'
+    if (v === 'paid') return 'bg-green-100 text-green-700'
+    if (v === 'active') return 'bg-green-100 text-green-700'
     if (v === 'expired' || v === 'cancelled' || v === 'failed') return 'bg-red-100 text-red-700'
     if (v === 'completed') return 'bg-gray-100 text-gray-600'
     return 'bg-amber-100 text-amber-700' // Pending, scheduled, processing
+  }
+
+  const displayStatus = (bill) => {
+    if (bill.isSubscription) {
+      if (bill.status === 'scheduled') return 'Upcoming'
+      if (bill.status === 'active' && bill.lastPaymentId) return 'Payment Due'
+      if (bill.status === 'active') return 'Active'
+    }
+    return bill.status || 'Pending'
   }
 
   // Invoices: Pending = unpaid. Subscriptions: scheduled/active = ongoing obligation
@@ -314,10 +331,11 @@ export default function BillsTab({ userWallet }) {
             </div>
 
             {bills.length > 0 ? bills.map((bill, idx) => {
+              const stateKey  = bill.isSubscription ? (bill.lastPaymentId || bill.subscriptionId) : bill.paymentId
               const billKey   = bill.isSubscription ? (bill.subscriptionId || `sub-${idx}`) : (bill.paymentId || `inv-${idx}`)
-              const txResult  = txResults[bill.paymentId]
-              const isPaying  = payingId === bill.paymentId
-              const rs        = routeState[bill.paymentId] || { status: 'idle', ranked: [], selectedToken: 'USDC' }
+              const txResult  = txResults[stateKey]
+              const isPaying  = payingId === stateKey
+              const rs        = routeState[stateKey] || { status: 'idle', ranked: [], selectedToken: 'USDC' }
               const selToken  = rs.selectedToken || 'USDC'
               const selRoute  = rs.ranked?.find(r => r.token === selToken)
               const payDisabled = isPaying
@@ -331,7 +349,7 @@ export default function BillsTab({ userWallet }) {
                   <div className="flex items-start justify-between">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusColor(bill.status)}`}>{bill.status}</span>
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusColor(bill.status)}`}>{displayStatus(bill)}</span>
                         {bill.isSubscription
                           ? <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Subscription</span>
                           : <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Flare Coston2</span>
@@ -361,21 +379,18 @@ export default function BillsTab({ userWallet }) {
                     </div>
                   </div>
 
-                  {/* Subscription info box — payments are auto-executed, no manual pay needed */}
-                  {bill.isSubscription && (
+                  {/* Subscription info / payment section */}
+                  {bill.isSubscription && !bill.lastPaymentId && (
                     <div className="rounded-lg bg-purple-50 border border-purple-100 px-3 py-2 text-xs text-purple-700 space-y-0.5">
-                      <p>Recurring payments are processed automatically by the merchant.</p>
-                      {bill.lastPaymentId && (
-                        <p>Last payment ID: <span className="font-mono">{bill.lastPaymentId}</span></p>
-                      )}
+                      <p>This subscription is upcoming. Recurring payments will be processed automatically by the merchant.</p>
                       {bill.lastError && (
                         <p className="text-red-600">Last error: {bill.lastError}</p>
                       )}
                     </div>
                   )}
 
-                  {/* Smart route + pay — only for one-time invoices, not subscriptions */}
-                  {!bill.isSubscription && bill.status === 'Pending' && !txResult?.hash && (
+                  {/* Smart route + pay — for one-time invoices AND subscriptions with lastPaymentId */}
+                  {((bill.isSubscription && bill.lastPaymentId) || (!bill.isSubscription && bill.status === 'Pending')) && !txResult?.hash && (
                     <div className="space-y-3">
 
                       {rs.status === 'idle' && (
@@ -411,7 +426,7 @@ export default function BillsTab({ userWallet }) {
                             return (
                               <button
                                 key={route.token}
-                                onClick={() => isSufficient && selectRouteToken(bill.paymentId, route.token)}
+                                onClick={() => isSufficient && selectRouteToken(stateKey, route.token)}
                                 disabled={!isSufficient}
                                 className={`w-full text-left rounded-xl border p-3 transition-all ${
                                   isSelected
@@ -494,8 +509,8 @@ export default function BillsTab({ userWallet }) {
                     </div>
                   )}
 
-                  {/* Success / error — only for one-time invoices */}
-                  {!bill.isSubscription && txResult?.hash && (
+                  {/* Success / error — for invoices and subscription payments */}
+                  {txResult?.hash && (
                     <div className="rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-xs text-green-700">
                       Paid with {txResult.token}!{' '}
                       <a href={`https://basescan.org/tx/${txResult.hash}`} target="_blank" rel="noopener noreferrer" className="font-mono underline">
@@ -503,7 +518,7 @@ export default function BillsTab({ userWallet }) {
                       </a>
                     </div>
                   )}
-                  {!bill.isSubscription && txResult?.error && <p className="text-xs text-red-500">{txResult.error}</p>}
+                  {txResult?.error && <p className="text-xs text-red-500">{txResult.error}</p>}
                 </div>
               )
             }) : !loading ? (

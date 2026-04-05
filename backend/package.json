@@ -8,8 +8,8 @@
   "main": "index.js",
   "scripts": {
     "start": "nodemon index.js",
-    "test": "node --check index.js && node --check walletconnect-pay.js && node --check initialize-wallet.js && node --check solidity-payments.js && node --check deploy-registry.js",
-    "deploy:registry": "node deploy-registry.js",
+    "test": "node --check index.js && node --check src/walletconnect-pay.js && node --check src/initialize-wallet.js && node --check src/solidity-payments.js && node --check src/deploy-registry.js && node --check src/subscription-executor.js && node --check src/uniswap-service.js",
+    "deploy:registry": "node src/deploy-registry.js",
     "deploy:invoices": "node src/deploy-invoice-registry.js"
   },
   "dependencies": {
