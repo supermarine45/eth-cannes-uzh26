@@ -43,7 +43,7 @@ async function createWalletConnectPaymentLink({ amountUSD, referenceId }) {
   return data;
 }
 
-async function processDueSubscription(subscriptionStore, subscription) {
+async function processDueSubscription(subscriptionStore, subscription, invoiceRegistry) {
   const claimedSubscription = await subscriptionStore.markProcessing(subscription.subscriptionId);
   if (!claimedSubscription) {
     return;
@@ -61,6 +61,25 @@ async function processDueSubscription(subscriptionStore, subscription) {
       gatewayUrl: payment.gatewayUrl,
     });
 
+    // Write the generated payment to InvoiceRegistry on Coston2 so it appears
+    // in the subscriber's Bills tab — same mechanism as one-time invoices.
+    if (invoiceRegistry && claimedSubscription.merchant && claimedSubscription.subscriber) {
+      try {
+        await invoiceRegistry.createInvoice({
+          merchant: claimedSubscription.merchant,
+          recipient: claimedSubscription.subscriber,
+          paymentId: payment.paymentId,
+          gatewayUrl: payment.gatewayUrl,
+          description: `${claimedSubscription.description || 'Subscription'} (${claimedSubscription.frequency})`,
+          amountUSD: claimedSubscription.amountUSD,
+          dueDate: null,
+        });
+      } catch (chainErr) {
+        // Non-critical — payment link still works, just won't appear in Bills tab automatically
+        console.error(`[subscriptions] on-chain invoice write failed for ${claimedSubscription.subscriptionId}: ${chainErr.message}`);
+      }
+    }
+
     console.log(
       `[subscriptions] executed ${updatedSubscription.subscriptionId} -> ${payment.paymentId} (${updatedSubscription.status})`,
     );
@@ -74,7 +93,7 @@ async function processDueSubscription(subscriptionStore, subscription) {
   }
 }
 
-function startSubscriptionExecutionLoop(subscriptionStore) {
+function startSubscriptionExecutionLoop(subscriptionStore, invoiceRegistry = null) {
   if (!subscriptionStore) {
     return null;
   }
@@ -101,7 +120,7 @@ function startSubscriptionExecutionLoop(subscriptionStore) {
     try {
       const dueSubscriptions = await subscriptionStore.getDueSubscriptions(20);
       for (const subscription of dueSubscriptions) {
-        await processDueSubscription(subscriptionStore, subscription);
+        await processDueSubscription(subscriptionStore, subscription, invoiceRegistry);
       }
     } catch (error) {
       console.error(`[subscriptions] scheduler error: ${error.message}`);
