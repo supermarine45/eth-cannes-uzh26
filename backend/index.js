@@ -983,6 +983,19 @@ app.delete("/api/merchant/subscription/:subscriptionId", async (req, res) => {
   }
 });
 
+// GET /api/bills/flags?wallet=0x... — returns all flags submitted by this wallet (to restore UI state on reload)
+app.get("/api/bills/flags", async (req, res) => {
+  try {
+    if (!flagRegistry) return sendError(res, 503, "Flag registry not configured.");
+    const { wallet } = req.query;
+    if (!wallet) return sendError(res, 400, "wallet query param required");
+    const flags = await flagRegistry.getFlagsByFlaggerWallet(wallet);
+    res.json(flags);
+  } catch (error) {
+    sendError(res, 500, error.message);
+  }
+});
+
 // POST /api/bills/:paymentId/flag — user flags an invoice
 // Body: { flaggerWallet, reason }
 app.post("/api/bills/:paymentId/flag", async (req, res) => {

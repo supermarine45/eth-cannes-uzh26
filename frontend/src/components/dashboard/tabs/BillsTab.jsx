@@ -103,8 +103,28 @@ export default function BillsTab({ userWallet }) {
     if (!effectiveWallet) return
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/api/bills?wallet=${effectiveWallet}`)
-      if (res.ok) setBills(await res.json())
+      const [billsRes, flagsRes] = await Promise.allSettled([
+        fetch(`${API_BASE}/api/bills?wallet=${effectiveWallet}`),
+        fetch(`${API_BASE}/api/bills/flags?wallet=${effectiveWallet}`),
+      ])
+
+      if (billsRes.status === 'fulfilled' && billsRes.value.ok) {
+        setBills(await billsRes.value.json())
+      }
+
+      // Pre-populate flagState for bills this wallet already flagged
+      if (flagsRes.status === 'fulfilled' && flagsRes.value.ok) {
+        const flags = await flagsRes.value.json()
+        if (flags.length > 0) {
+          setFlagState(prev => {
+            const next = { ...prev }
+            for (const flag of flags) {
+              next[flag.paymentId] = { status: 'done' }
+            }
+            return next
+          })
+        }
+      }
     } catch { /* registry not configured */ }
     finally { setLoading(false) }
   }

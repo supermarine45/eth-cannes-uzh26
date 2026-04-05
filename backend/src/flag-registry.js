@@ -104,6 +104,20 @@ function createFlagRegistry() {
       })) : [];
     },
 
+    // Returns all flags submitted by a specific wallet (for pre-populating UI state on reload)
+    async getFlagsByFlaggerWallet(flaggerWallet) {
+      const rows = await supabaseRequest(
+        `invoice_flags?flagger_wallet=eq.${encodeURIComponent(flaggerWallet.trim().toLowerCase())}&order=created_at.desc`
+      );
+      return Array.isArray(rows) ? rows.map(r => ({
+        id: r.id,
+        paymentId: r.payment_id,
+        flaggerWallet: r.flagger_wallet,
+        reason: r.reason,
+        createdAt: r.created_at,
+      })) : [];
+    },
+
     // Returns all flags for a list of paymentIds in one query
     async getFlagsForPaymentIds(paymentIds) {
       if (!paymentIds || paymentIds.length === 0) return [];
