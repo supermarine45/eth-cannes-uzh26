@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ABI = [
+  "function owner() external view returns (address)",
   "function health() public view returns (bool)",
   "function registerProfile(string ensName, bytes32 ensNode, string profileURI) external",
   "function registerProfileFor(address ownerAddress, string ensName, bytes32 ensNode, string profileURI) external",
@@ -66,7 +67,10 @@ function normalizeSummary(count, totalScaled18, decimals) {
 
 function createEnsCommerceRegistry() {
   const rpcUrl = process.env.SOLIDITY_ENS_RPC_URL;
-  const privateKey = process.env.SOLIDITY_ENS_PRIVATE_KEY;
+  const rawPrivateKey = process.env.SOLIDITY_ENS_PRIVATE_KEY || process.env.SOLIDITY_PRIVATE_KEY;
+  const privateKey = rawPrivateKey
+    ? (rawPrivateKey.startsWith('0x') ? rawPrivateKey : `0x${rawPrivateKey}`)
+    : null;
   const contractAddress = process.env.SOLIDITY_ENS_REPUTATION_REGISTRY_ADDRESS;
 
   if (!rpcUrl) {
@@ -95,9 +99,21 @@ function createEnsCommerceRegistry() {
   return {
     health: async () => {
       try {
-        if (!contract) ensureInitialized();
+        const { contract, signer } = ensureInitialized();
         const count = await contract.getProfileCount();
-        return { healthy: true, profileCount: Number(count) };
+        const owner = await contract.owner();
+        const signerAddress = signer ? await signer.getAddress() : null;
+        const network = await contract.runner.provider.getNetwork();
+        return {
+          healthy: true,
+          profileCount: Number(count),
+          contractAddress,
+          rpcUrl,
+          chainId: Number(network.chainId),
+          ownerAddress: owner,
+          signerAddress,
+          signerIsOwner: signerAddress ? signerAddress.toLowerCase() === owner.toLowerCase() : false,
+        };
       } catch (error) {
         return { healthy: false, error: error.message };
       }

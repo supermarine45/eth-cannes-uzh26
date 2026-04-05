@@ -14,6 +14,7 @@ const { createSolidityPaymentRegistry } = require("./src/solidity-payments");
 const { createInvoiceRegistry } = require("./src/invoice-registry");
 const { createSubscriptionRegistry, FREQUENCY_OPTIONS } = require("./src/subscription-registry");
 const { startSubscriptionExecutionLoop } = require("./src/subscription-executor");
+const { createFlagRegistry, FLAG_REASONS } = require("./src/flag-registry");
 const { createEnsCommerceRegistry } = require("./ens-commerce");
 const { calculateTokenAmount } = require("./src/flare-service");
 const { buildSwapToUSDC, getLiveEthUsdcRates, ETH_ADDRESS } = require("./src/uniswap-service");
@@ -25,6 +26,7 @@ const client = createWalletConnectPayClient();
 const paymentRegistry = createSolidityPaymentRegistry();
 const invoiceRegistry = createInvoiceRegistry();
 const subscriptionRegistry = createSubscriptionRegistry();
+const flagRegistry = createFlagRegistry();
 let stopSubscriptionExecutor = null;
 const ensRegistry = createEnsCommerceRegistry();
 const port = Number(process.env.PORT || 3000);
@@ -546,12 +548,12 @@ app.get("/api/ens/health", async (req, res) => {
 
 app.post("/api/ens/register-profile", async (req, res) => {
   try {
-    const { ownerAddress, ensName, ensNode, profileURI } = req.body ?? {};
-    if (!ownerAddress || !ensName) {
-      return sendError(res, 400, "ownerAddress and ensName required");
+    const { ensName, ensNode, profileURI } = req.body ?? {};
+    if (!ensName) {
+      return sendError(res, 400, "ensName required");
     }
     const normalizedEnsName = normalizeCannesEnsName(ensName);
-    const result = await ensRegistry.registerProfile(ownerAddress, normalizedEnsName, ensNode, profileURI);
+    const result = await ensRegistry.registerProfile(normalizedEnsName, ensNode, profileURI);
     res.json(result);
   } catch (error) {
     sendError(res, 400, error.message);
@@ -956,6 +958,71 @@ app.get("/api/merchant/subscription/:subscriptionId", async (req, res) => {
     res.json(subscription);
   } catch (error) {
     sendError(res, 400, error.message);
+  }
+});
+
+// DELETE /api/merchant/invoice/:paymentId — cancel a one-time invoice on-chain
+app.delete("/api/merchant/invoice/:paymentId", async (req, res) => {
+  try {
+    if (!invoiceRegistry) return sendError(res, 503, "Invoice registry not configured. Set INVOICE_REGISTRY_ADDRESS.");
+    const result = await invoiceRegistry.updateStatus(req.params.paymentId, "Cancelled");
+    res.json(result);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+// DELETE /api/merchant/subscription/:subscriptionId — cancel a subscription
+app.delete("/api/merchant/subscription/:subscriptionId", async (req, res) => {
+  try {
+    if (!subscriptionRegistry) return sendError(res, 503, "Subscription store not configured.");
+    const result = await subscriptionRegistry.cancelSubscription(req.params.subscriptionId);
+    res.json(result);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+// POST /api/bills/:paymentId/flag — user flags an invoice
+// Body: { flaggerWallet, reason }
+app.post("/api/bills/:paymentId/flag", async (req, res) => {
+  try {
+    if (!flagRegistry) return sendError(res, 503, "Flag registry not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.");
+    const { flaggerWallet, reason } = req.body ?? {};
+    if (!flaggerWallet) return sendError(res, 400, "flaggerWallet required");
+    if (!reason) return sendError(res, 400, `reason required. Must be one of: ${FLAG_REASONS.join(", ")}`);
+    const flag = await flagRegistry.createFlag({ paymentId: req.params.paymentId, flaggerWallet, reason });
+    res.status(201).json(flag);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+// GET /api/merchant/invoice/:paymentId/flags — merchant views flags on a specific invoice
+app.get("/api/merchant/invoice/:paymentId/flags", async (req, res) => {
+  try {
+    if (!flagRegistry) return sendError(res, 503, "Flag registry not configured.");
+    const flags = await flagRegistry.getFlagsByPaymentId(req.params.paymentId);
+    res.json(flags);
+  } catch (error) {
+    sendError(res, 500, error.message);
+  }
+});
+
+// GET /api/merchant/invoices/flags?wallet=0x... — merchant views all flags across their invoices
+app.get("/api/merchant/invoices/flags", async (req, res) => {
+  try {
+    if (!flagRegistry) return sendError(res, 503, "Flag registry not configured.");
+    if (!invoiceRegistry) return sendError(res, 503, "Invoice registry not configured.");
+    const { wallet } = req.query;
+    if (!wallet) return sendError(res, 400, "wallet query param required");
+    // Get all merchant invoices first, then fetch all flags in one query
+    const invoices = await invoiceRegistry.getByMerchant(wallet);
+    const paymentIds = invoices.map(inv => inv.paymentId).filter(Boolean);
+    const flags = await flagRegistry.getFlagsForPaymentIds(paymentIds);
+    res.json(flags);
+  } catch (error) {
+    sendError(res, 500, error.message);
   }
 });
 

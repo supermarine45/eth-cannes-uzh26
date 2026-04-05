@@ -16,11 +16,17 @@ function getBestInjectedProvider() {
     return null
   }
 
+  if (window.ethereum?.isMetaMask) {
+    return window.ethereum
+  }
+
   const providers = Array.isArray(window.ethereum.providers) && window.ethereum.providers.length > 0
     ? window.ethereum.providers
     : [window.ethereum]
 
-  return providers.find((provider) => provider?.isMetaMask) ?? null
+  return providers.find((provider) => provider?.isMetaMask)
+    ?? providers.find((provider) => typeof provider?.request === 'function')
+    ?? null
 }
 
 export default function SignupAuthPanel({ onBack }) {
@@ -78,7 +84,7 @@ export default function SignupAuthPanel({ onBack }) {
     await runAction('metamask', async () => {
       const provider = getBestInjectedProvider()
       if (!provider) {
-        throw new Error('MetaMask is required. Please install or unlock MetaMask to continue.')
+        throw new Error('No injected wallet provider found. Install or unlock MetaMask and reload this page.')
       }
 
       const accounts = await provider.request({ method: 'eth_requestAccounts' })
