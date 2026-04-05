@@ -43,8 +43,8 @@ function createInvoiceRegistry() {
       const dueDateTs = dueDate ? Math.floor(new Date(dueDate).getTime() / 1000) : 0;
 
       const tx = await contract.createInvoice(
-        ethers.getAddress(merchant),
-        ethers.getAddress(recipient),
+        ethers.getAddress(merchant.trim()),
+        ethers.getAddress(recipient.trim()),
         paymentId,
         gatewayUrl,
         description || "",

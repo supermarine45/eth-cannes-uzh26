@@ -62,11 +62,11 @@ async function requestUniswapQuote({ tokenIn, tokenOut, tokenInDecimals, tokenOu
   };
 }
 
-async function buildSwapToUSDC(userWallet, tokenIn, usdcAmount) {
+async function buildSwapToUSDC(userWallet, tokenIn, usdcAmount, tokenInDecimals = 18) {
   const quoteData = await requestUniswapQuote({
     tokenIn,
     tokenOut: USDC_BASE,
-    tokenInDecimals: 18,
+    tokenInDecimals,
     tokenOutDecimals: 6,
     amount: usdcAmount,
     type: "EXACT_OUTPUT",

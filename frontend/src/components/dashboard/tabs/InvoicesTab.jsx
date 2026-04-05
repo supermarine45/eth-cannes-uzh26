@@ -107,15 +107,15 @@ export default function InvoicesTab({ userWallet }) {
       const payload = formData.paymentType === 'one-time'
         ? {
             amountUSD: parseFloat(formData.amount),
-            merchantWallet: effectiveWallet,
-            recipientWallet: formData.recipientWallet,
+            merchantWallet: effectiveWallet.trim(),
+            recipientWallet: formData.recipientWallet.trim(),
             description: formData.description,
             dueDate: formData.dueDate || null,
             referenceId: `omni-${Date.now()}`,
           }
         : {
-            merchantWallet: effectiveWallet,
-            subscriberWallet: formData.recipientWallet,
+            merchantWallet: effectiveWallet.trim(),
+            subscriberWallet: formData.recipientWallet.trim(),
             description: formData.description,
             amountUSD: parseFloat(formData.amount),
             frequency: formData.frequency,
