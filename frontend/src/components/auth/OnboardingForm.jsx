@@ -147,8 +147,11 @@ function validateAdultDateOfBirth(value) {
 export default function OnboardingForm() {
   const { session, user, profile, walletAddresses, saveOnboarding } = useAuth()
   const isMetaMaskSignup = session?.provider === 'metamask'
+  const requiresAppPassword = session?.provider === 'google' || session?.provider === 'metamask'
   const [fullName, setFullName] = useState('')
   const [emailAddress, setEmailAddress] = useState('')
+  const [appPassword, setAppPassword] = useState('')
+  const [confirmAppPassword, setConfirmAppPassword] = useState('')
   const [ensName, setEnsName] = useState('')
   const [dateOfBirth, setDateOfBirth] = useState('')
   const [accountType, setAccountType] = useState('individual')
@@ -309,6 +312,16 @@ export default function OnboardingForm() {
         throw new Error('Email address is required for MetaMask signups.')
       }
 
+      if (requiresAppPassword) {
+        if (!appPassword || appPassword.length < 8) {
+          throw new Error('Password must be at least 8 characters.')
+        }
+
+        if (appPassword !== confirmAppPassword) {
+          throw new Error('Password confirmation does not match.')
+        }
+      }
+
       validateAdultDateOfBirth(dateOfBirth)
 
       if (accountType === 'business') {
@@ -336,6 +349,7 @@ export default function OnboardingForm() {
         companyName: accountType === 'business' ? companyName : null,
         businessAddress: accountType === 'business' ? businessAddress : null,
         email: isMetaMaskSignup ? emailAddress.trim() : (user?.email || session?.user?.email || emailAddress.trim() || null),
+        appPassword: requiresAppPassword ? appPassword : null,
         walletAddresses: wallets.map((entry, index) => ({
           address: entry.address,
           label: entry.label,
@@ -400,6 +414,39 @@ export default function OnboardingForm() {
           />
           <p className="mt-1 text-xs text-muted-foreground">Required. Use letters or numbers, then .cannes.</p>
         </div>
+
+        {requiresAppPassword ? (
+          <>
+            <div>
+              <label className={label} htmlFor="appPassword">Password</label>
+              <input
+                id="appPassword"
+                type="password"
+                className={input}
+                value={appPassword}
+                onChange={(event) => setAppPassword(event.target.value)}
+                placeholder="At least 8 characters"
+                minLength={8}
+                required
+              />
+              <p className="mt-1 text-xs text-muted-foreground">Used as your app password for this account.</p>
+            </div>
+
+            <div>
+              <label className={label} htmlFor="confirmAppPassword">Confirm password</label>
+              <input
+                id="confirmAppPassword"
+                type="password"
+                className={input}
+                value={confirmAppPassword}
+                onChange={(event) => setConfirmAppPassword(event.target.value)}
+                placeholder="Re-enter password"
+                minLength={8}
+                required
+              />
+            </div>
+          </>
+        ) : null}
 
         <div className="md:col-span-2">
           <label className={label}>Account type</label>

@@ -125,7 +125,7 @@ export default function App() {
         let nextSession = null
 
         if (callbackSession.code) {
-          const result = await exchangeOAuthCode(callbackSession.code, callbackSession.provider)
+          const result = await exchangeOAuthCode(callbackSession.code, callbackSession.provider, route.mode)
           nextSession = auth.normalizeAuthSessionPayload(result.session, callbackSession.provider)
         } else {
           nextSession = auth.normalizeAuthSessionPayload({
@@ -145,7 +145,7 @@ export default function App() {
     }
 
     handleOAuthCallback()
-  }, [callbackSession, applySession, auth])
+  }, [callbackSession, applySession, auth, route.mode])
 
   // If no session, show auth pages or landing
   if (!session) {
