@@ -84,67 +84,6 @@ export function getEnsHealth() {
   return request('/api/ens/health')
 }
 
-export async function registerEnsProfileWithMetaMask({ ethereumProvider, ensName, profileURI = '', expectedOwnerAddress }) {
-  const { BrowserProvider, Contract, getAddress, namehash } = await import('ethers')
-
-  if (!ethereumProvider) {
-    throw new Error('MetaMask provider not found.')
-  }
-
-  const health = await getEnsHealth()
-  const contractAddress = health?.contractAddress
-  const expectedChainId = Number(health?.chainId)
-
-  if (!contractAddress) {
-    throw new Error('ENS registry contract address is not available from backend health.')
-  }
-
-  const provider = new BrowserProvider(ethereumProvider)
-
-  if (Number.isFinite(expectedChainId) && expectedChainId > 0) {
-    const currentChainHex = await ethereumProvider.request({ method: 'eth_chainId' })
-    const currentChainId = Number.parseInt(currentChainHex, 16)
-
-    if (currentChainId !== expectedChainId) {
-      const targetHex = `0x${expectedChainId.toString(16)}`
-      await ethereumProvider.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: targetHex }],
-      })
-    }
-  }
-
-  const signer = await provider.getSigner()
-  const signerAddress = getAddress(await signer.getAddress()).toLowerCase()
-
-  const deployedCode = await provider.getCode(contractAddress)
-  if (!deployedCode || deployedCode === '0x') {
-    throw new Error('ENS registry contract is not deployed on the currently selected MetaMask network. Switch MetaMask to the ENS chain and try again.')
-  }
-
-  if (expectedOwnerAddress) {
-    const normalizedExpected = getAddress(expectedOwnerAddress).toLowerCase()
-    if (normalizedExpected !== signerAddress) {
-      throw new Error('Connect MetaMask with your primary wallet before registering ENS on-chain.')
-    }
-  }
-
-  const ENS_REGISTRY_ABI = [
-    'function registerProfile(string ensName, bytes32 ensNode, string profileURI) external',
-  ]
-  const contract = new Contract(contractAddress, ENS_REGISTRY_ABI, signer)
-  const ensNode = namehash(ensName)
-  const tx = await contract.registerProfile(ensName, ensNode, profileURI)
-
-  const receipt = await tx.wait()
-  return {
-    txHash: tx.hash,
-    blockNumber: receipt?.blockNumber,
-    signerAddress,
-    contractAddress,
-  }
-}
-
 export function searchEnsProfile(query, { walletAddress } = {}) {
   const normalizedQuery = String(query || '').trim()
   const searchParams = new URLSearchParams({ query: normalizedQuery })

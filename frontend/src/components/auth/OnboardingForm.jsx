@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/useAuth'
-import { normalizeCannesEnsName, registerEnsProfileWithMetaMask } from '@/lib/ens'
+import { normalizeCannesEnsName } from '@/lib/ens'
 
 const label = 'mb-1 block text-sm font-medium text-foreground'
 const input = 'w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground/80 focus:border-ring focus:ring-2 focus:ring-ring/40'
@@ -352,32 +352,28 @@ export default function OnboardingForm() {
         throw new Error('Connect at least one wallet address before continuing.')
       }
 
-      const normalizedEnsName = normalizeCannesEnsName(ensName)
-      const primaryWallet = wallets.find((entry) => entry.isPrimary)?.address || wallets[0]?.address
+      const normalizedEnsName = normalizeCannesEnsName(`${ensUsername}.cannes`)
 
-      if (!primaryWallet) {
-        throw new Error('Primary wallet is required to register ENS on-chain.')
-      }
-
-      const injectedProvider = getBestInjectedProvider()
-      if (!injectedProvider) {
-        throw new Error('No injected wallet provider found. Install/unlock MetaMask and reload this page to register ENS on-chain.')
-      }
-
-      await injectedProvider.request({ method: 'eth_requestAccounts' })
-
-      // Register ENS profile via MetaMask
       if (normalizedEnsName) {
-        await registerEnsProfileWithMetaMask({
-          ethereumProvider: injectedProvider,
-          ensName: normalizedEnsName,
-          profileURI: '',
-          expectedOwnerAddress: primaryWallet,
-        })
+        const primaryWallet = wallets.find((entry) => entry.isPrimary)?.address || wallets[0]?.address
+        if (!primaryWallet) {
+          throw new Error('Primary wallet is required to register ENS on-chain.')
+        }
+
+        const provider = getBestInjectedProvider()
+        if (!provider) {
+          throw new Error('MetaMask is required to confirm ENS ownership.')
+        }
+
+        const accounts = await provider.request({ method: 'eth_requestAccounts' })
+        const selectedWallet = Array.isArray(accounts) && accounts.length > 0 ? String(accounts[0]).toLowerCase() : ''
+        if (!selectedWallet || selectedWallet !== String(primaryWallet).toLowerCase()) {
+          throw new Error('Connect MetaMask with your primary wallet address before saving profile.')
+        }
       }
 
       await saveOnboarding({
-        syncEnsOnchain: false,
+        syncEnsOnchain: Boolean(normalizedEnsName),
         authProvider: session?.provider,
         fullName: isMetaMaskSignup ? null : fullName,
         dateOfBirth,

@@ -25,6 +25,11 @@ const ABI = [
   "function getSummary(address targetAddress, address[] reviewerAddresses, string tag1, string tag2) external view returns (uint64 count, int128 summaryValue, uint8 summaryValueDecimals)",
 ];
 
+const SEPOLIA_NETWORK = {
+  name: 'sepolia',
+  chainId: 11155111,
+};
+
 function toContentHash(uri) {
   if (!uri || uri.trim() === '') {
     return ethers.zeroPadValue('0x', 32);
@@ -89,7 +94,7 @@ function createEnsCommerceRegistry() {
       throw new Error('ENS configuration incomplete: RPC URL or contract address missing');
     }
     if (!contract) {
-      const provider = new ethers.JsonRpcProvider(rpcUrl);
+      const provider = new ethers.JsonRpcProvider(rpcUrl, SEPOLIA_NETWORK);
       signer = privateKey ? new ethers.Wallet(privateKey, provider) : null;
       contract = new ethers.Contract(contractAddress, ABI, signer || provider);
     }

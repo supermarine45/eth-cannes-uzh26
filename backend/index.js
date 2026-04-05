@@ -944,20 +944,15 @@ app.get("/api/merchant/subscriptions", async (req, res) => {
 });
 
 // GET /api/merchant/subscription/:subscriptionId
-app.get("/api/merchant/subscription/:subscriptionId", async (req, res) => {
+app.get("/api/bills/flags", async (req, res) => {
   try {
-    if (!subscriptionRegistry) {
-      return sendError(res, 503, "Subscription store not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.");
-    }
-
-    const subscription = await subscriptionRegistry.getSubscription(req.params.subscriptionId);
-    if (!subscription) {
-      return sendError(res, 404, `Subscription not found: ${req.params.subscriptionId}`);
-    }
-
-    res.json(subscription);
+    if (!flagRegistry) return sendError(res, 503, "Flag registry not configured.");
+    const { wallet } = req.query;
+    if (!wallet) return sendError(res, 400, "wallet query param required");
+    const flags = await flagRegistry.getFlagsByFlaggerWallet(wallet);
+    res.json(flags);
   } catch (error) {
-    sendError(res, 400, error.message);
+    sendError(res, 500, error.message);
   }
 });
 

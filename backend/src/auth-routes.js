@@ -564,6 +564,30 @@ function isOnlyOwnerRevert(error) {
   return message.includes('only owner')
 }
 
+function isEnsTransientError(error) {
+  const message = String(error?.reason || error?.message || '').toLowerCase()
+  return message.includes('timeout')
+    || message.includes('rate limit')
+    || message.includes('too many requests')
+    || message.includes('exceeded maximum retry limit')
+    || error?.code === 'SERVER_ERROR'
+}
+
+async function withTimeout(promise, timeoutMs, message) {
+  let timer = null
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+  })
+
+  try {
+    return await Promise.race([promise, timeoutPromise])
+  } finally {
+    if (timer) {
+      clearTimeout(timer)
+    }
+  }
+}
+
 async function syncEnsProfileOnchain({ ownerAddress, ensName }) {
   try {
     const existingProfile = await ensRegistry.getProfile(ownerAddress)
@@ -1025,7 +1049,7 @@ router.get('/me', async (req, res) => {
         user_metadata: {},
         walletAddress: walletPayload.walletAddress || walletPayload.sub,
       }
-
+      const shouldSyncEnsOnchain = req.body?.syncEnsOnchain === true
       logAuthEvent('me.wallet_user', {
         provider,
         userId: user.id,
@@ -1110,18 +1134,42 @@ router.post('/onboarding', async (req, res) => {
       syncEnsOnchain: shouldSyncEnsOnchain,
     })
 
+    let ensSyncWarning = null
     if (shouldSyncEnsOnchain) {
-      const chainProfile = await syncEnsProfileOnchain({
-        ownerAddress: primaryWalletAddress,
-        ensName: parsed.ensName,
-      })
+      try {
+        const chainProfile = await withTimeout(
+          syncEnsProfileOnchain({
+            ownerAddress: primaryWalletAddress,
+            ensName: parsed.ensName,
+          }),
+          15000,
+          'ENS sync timed out while waiting for chain confirmation.',
+        )
 
-      logAuthEvent('onboarding.ens_synced', {
-        provider,
-        ownerAddress: primaryWalletAddress,
-        ensName: parsed.ensName,
-        txHash: chainProfile?.txHash || chainProfile?.transactionHash || null,
-      })
+        logAuthEvent('onboarding.ens_synced', {
+          provider,
+          ownerAddress: primaryWalletAddress,
+          ensName: parsed.ensName,
+          txHash: chainProfile?.txHash || chainProfile?.transactionHash || null,
+        })
+      } catch (ensError) {
+        if (isOnlyOwnerRevert(ensError)) {
+          throw ensError
+        }
+
+        if (isEnsTransientError(ensError)) {
+          ensSyncWarning = 'ENS sync is delayed due to RPC/network limits. Profile save continued.'
+          logAuthEvent('onboarding.ens_sync_delayed', {
+            provider,
+            ownerAddress: primaryWalletAddress,
+            ensName: parsed.ensName,
+            warning: ensSyncWarning,
+            error: ensError.message,
+          })
+        } else {
+          throw ensError
+        }
+      }
     }
 
     const principalId = provider === 'metamask' ? `wallet:${String(user.walletAddress || user.id).toLowerCase()}` : user.id
@@ -1159,6 +1207,7 @@ router.post('/onboarding', async (req, res) => {
       user: buildUserResponse({ user, provider, walletAddress: user.walletAddress || user.id }),
       profile: normalizedProfile,
       walletAddresses: linkedWallets,
+      ensSyncWarning,
       onboardingRequired: false,
     })
   } catch (error) {
