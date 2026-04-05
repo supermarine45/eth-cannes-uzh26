@@ -265,6 +265,111 @@ app.get("/api/commodity/:commodity/in/:crypto", async (req, res) => {
   }
 });
 
+// Supported swap-in tokens on Base (USDC is handled as direct transfer, not a swap)
+const BASE_SWAP_TOKENS = {
+  ETH:  { address: ETH_ADDRESS, decimals: 18 },
+  WETH: { address: "0x4200000000000000000000000000000000000006", decimals: 18 },
+  DAI:  { address: "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb", decimals: 18 },
+};
+
+// POST /api/checkout/best-route
+// Body: { invoiceUSD, userWallet, tokens: [{ symbol, balance }] }
+// Scans quotes for all available tokens in parallel, ranks by effective USD cost.
+// effectiveCostUSD = (tokenInAmount × tokenPrice) + gasFeeUSD
+// The recommended token is the cheapest one with sufficient balance.
+app.post("/api/checkout/best-route", async (req, res) => {
+  try {
+    const { invoiceUSD, userWallet, tokens } = req.body ?? {};
+
+    if (!invoiceUSD || typeof invoiceUSD !== "number" || invoiceUSD <= 0) {
+      return sendError(res, 400, "invoiceUSD must be a positive number");
+    }
+    if (!userWallet || !/^0x[a-fA-F0-9]{40}$/.test(userWallet)) {
+      return sendError(res, 400, "userWallet must be a valid Ethereum address");
+    }
+    if (!Array.isArray(tokens) || tokens.length === 0) {
+      return sendError(res, 400, "tokens must be a non-empty array of { symbol, balance }");
+    }
+
+    // Fetch quotes for all tokens in parallel (USDC is direct, no Uniswap call needed)
+    const quoteJobs = tokens.map(async ({ symbol, balance }) => {
+      const tokenKey = (symbol || "").toUpperCase();
+      const balanceFloat = parseFloat(balance || "0");
+
+      if (tokenKey === "USDC") {
+        // Direct USDC transfer — cost is exactly invoiceUSD + ~$0.02 gas on Base
+        const effectiveCostUSD = invoiceUSD + 0.02;
+        const sufficient = balanceFloat >= invoiceUSD;
+        return {
+          token: "USDC",
+          tokenInAmount: invoiceUSD.toFixed(6),
+          userBalance: balance,
+          usdPrice: 1,
+          gasFeeUSD: "0.02",
+          effectiveCostUSD,
+          premium: 0.02,
+          sufficient,
+          isDirect: true,
+          transaction: null,
+        };
+      }
+
+      const tokenMeta = BASE_SWAP_TOKENS[tokenKey];
+      if (!tokenMeta) return { token: tokenKey, error: `Unsupported token: ${tokenKey}` };
+
+      try {
+        const { usdPrice } = await calculateTokenAmount(invoiceUSD, tokenKey);
+        const { quote, transaction } = await buildSwapToUSDC(userWallet, tokenMeta.address, invoiceUSD, tokenMeta.decimals);
+
+        const tokenInFloat = parseFloat(quote.tokenInAmount || "0");
+        const gasFeeUSD = parseFloat(quote.gasFeeUSD || "0");
+        const effectiveCostUSD = tokenInFloat * usdPrice + gasFeeUSD;
+        const sufficient = balanceFloat >= tokenInFloat;
+
+        return {
+          token: tokenKey,
+          tokenAddress: tokenMeta.address,
+          tokenInAmount: quote.tokenInAmount,
+          userBalance: balance,
+          usdPrice,
+          gasFeeUSD: quote.gasFeeUSD,
+          effectiveCostUSD,
+          premium: effectiveCostUSD - invoiceUSD,
+          sufficient,
+          isDirect: false,
+          routing: quote.routing,
+          transaction,
+        };
+      } catch (err) {
+        return { token: tokenKey, error: err.message };
+      }
+    });
+
+    const settled = await Promise.allSettled(quoteJobs);
+
+    const ranked = settled
+      .filter(r => r.status === "fulfilled" && r.value && !r.value.error)
+      .map(r => r.value)
+      .sort((a, b) => {
+        // Sufficient tokens first, then sort by cheapest effective cost
+        if (a.sufficient !== b.sufficient) return a.sufficient ? -1 : 1;
+        return a.effectiveCostUSD - b.effectiveCostUSD;
+      });
+
+    const failed = settled
+      .filter(r => r.status === "rejected" || r.value?.error)
+      .map(r => ({ token: r.value?.token, error: r.value?.error || r.reason?.message }));
+
+    // Mark the single best (cheapest sufficient) option
+    const bestIdx = ranked.findIndex(r => r.sufficient);
+    if (bestIdx !== -1) ranked[bestIdx].recommended = true;
+
+    res.json({ ranked, failed, invoiceUSD });
+  } catch (error) {
+    sendError(res, 500, error.message);
+  }
+});
+
 // POST /api/checkout/quote
 // Body: { invoiceUSD: 23.47, userWallet: "0x...", token: "ETH" }
 // Calls Flare for live price, Uniswap to build swap tx, returns both
@@ -279,12 +384,22 @@ app.post("/api/checkout/quote", async (req, res) => {
       return sendError(res, 400, "userWallet must be a valid Ethereum address");
     }
 
+    const tokenKey = token.toUpperCase();
+    if (tokenKey === "USDC") {
+      return sendError(res, 400, "USDC payments use direct transfer — no swap needed");
+    }
+    const tokenMeta = BASE_SWAP_TOKENS[tokenKey];
+    if (!tokenMeta) {
+      return sendError(res, 400, `Unsupported token: ${token}. Supported: ${Object.keys(BASE_SWAP_TOKENS).join(", ")}`);
+    }
+
     const { tokenAmount, usdPrice, timestamp } = await calculateTokenAmount(invoiceUSD, token);
-    const { quote, transaction } = await buildSwapToUSDC(userWallet, ETH_ADDRESS, invoiceUSD);
+    const { quote, transaction } = await buildSwapToUSDC(userWallet, tokenMeta.address, invoiceUSD, tokenMeta.decimals);
 
     res.json({
       invoiceUSD,
-      token: token.toUpperCase(),
+      token: tokenKey,
+      tokenAddress: tokenMeta.address,
       usdPrice,
       tokenAmount,
       priceTimestamp: timestamp,

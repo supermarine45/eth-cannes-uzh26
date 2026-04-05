@@ -27,6 +27,29 @@ async function buildSwapToUSDC(userWallet, tokenIn, usdcAmount) {
   const quoteData = await quoteRes.json();
   if (!quoteData.quote) throw new Error(`Uniswap quote failed: ${JSON.stringify(quoteData)}`);
 
+<<<<<<< Updated upstream
+=======
+  return {
+    inputAmount: formatUnitsFromRaw(quoteData.quote.input?.amount, tokenInDecimals),
+    outputAmount: formatUnitsFromRaw(quoteData.quote.output?.amount, tokenOutDecimals),
+    gasFeeUSD: quoteData.quote.gasFeeUSD,
+    routing: quoteData.routing,
+    raw: quoteData.quote,
+  };
+}
+
+async function buildSwapToUSDC(userWallet, tokenIn, usdcAmount, tokenInDecimals = 18) {
+  const quoteData = await requestUniswapQuote({
+    tokenIn,
+    tokenOut: USDC_BASE,
+    tokenInDecimals,
+    tokenOutDecimals: 6,
+    amount: usdcAmount,
+    type: "EXACT_OUTPUT",
+    swapper: userWallet,
+  });
+
+>>>>>>> Stashed changes
   const swapRes = await fetch(`${BASE_URL}/swap`, {
     method: "POST",
     headers: { "x-api-key": UNISWAP_API_KEY, "Content-Type": "application/json" },
