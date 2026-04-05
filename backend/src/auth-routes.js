@@ -1,9 +1,11 @@
 const crypto = require('crypto')
 const express = require('express')
 const { ethers } = require('ethers')
+const { createEnsCommerceRegistry } = require('../ens-commerce')
 const { normalizeCannesEnsName } = require('./ens-name')
 
 const router = express.Router()
+const ensRegistry = createEnsCommerceRegistry()
 
 function getRequiredEnv(name) {
   const value = process.env[name]
@@ -451,6 +453,42 @@ async function replaceWalletAddresses(profileId, walletAddresses) {
   })
 
   return Array.isArray(rows) ? rows : []
+}
+
+function getPrimaryWalletAddress(walletAddresses) {
+  if (!Array.isArray(walletAddresses) || walletAddresses.length === 0) {
+    throw new Error('walletAddresses must include at least one wallet.')
+  }
+
+  return walletAddresses.find((entry) => entry.is_primary)?.wallet_address || walletAddresses[0].wallet_address
+}
+
+function isOnlyOwnerRevert(error) {
+  const message = String(error?.reason || error?.message || '').toLowerCase()
+  return message.includes('only owner')
+}
+
+async function syncEnsProfileOnchain({ ownerAddress, ensName }) {
+  try {
+    const existingProfile = await ensRegistry.getProfile(ownerAddress)
+    const hasExistingProfile = existingProfile?.owner && existingProfile.owner !== ethers.ZeroAddress
+
+    if (!hasExistingProfile) {
+      return ensRegistry.registerProfile(ownerAddress, ensName, null, '')
+    }
+
+    return ensRegistry.updateProfile(ownerAddress, ensName, existingProfile.ensNode, existingProfile.profileURI || '', existingProfile.active)
+  } catch (error) {
+    if (String(error?.message || '').toLowerCase().includes('profile not found')) {
+      return ensRegistry.registerProfile(ownerAddress, ensName, null, '')
+    }
+
+    if (isOnlyOwnerRevert(error)) {
+      throw new Error('On-chain ENS sync failed: backend signer is not the ENS registry owner. Set SOLIDITY_ENS_PRIVATE_KEY to the contract owner key or transfer registry ownership to the backend signer.')
+    }
+
+    throw error
+  }
 }
 
 function normalizeProfileForFrontend(profile) {
@@ -931,6 +969,8 @@ router.post('/onboarding', async (req, res) => {
     if (walletAddresses.length === 0) {
       throw new Error('walletAddresses must include at least one wallet.')
     }
+    const primaryWalletAddress = getPrimaryWalletAddress(walletAddresses)
+    const shouldSyncEnsOnchain = req.body?.syncEnsOnchain !== false
 
     logAuthEvent('onboarding.request', {
       provider,
@@ -938,8 +978,23 @@ router.post('/onboarding', async (req, res) => {
       fullName: parsed.fullName,
       accountType: parsed.accountType,
       walletAddressCount: walletAddresses.length,
-      primaryWalletAddress: walletAddresses.find((entry) => entry.is_primary)?.wallet_address || walletAddresses[0]?.wallet_address || null,
+      primaryWalletAddress,
+      syncEnsOnchain: shouldSyncEnsOnchain,
     })
+
+    if (shouldSyncEnsOnchain) {
+      const chainProfile = await syncEnsProfileOnchain({
+        ownerAddress: primaryWalletAddress,
+        ensName: parsed.ensName,
+      })
+
+      logAuthEvent('onboarding.ens_synced', {
+        provider,
+        ownerAddress: primaryWalletAddress,
+        ensName: parsed.ensName,
+        txHash: chainProfile?.txHash || chainProfile?.transactionHash || null,
+      })
+    }
 
     const principalId = provider === 'metamask' ? `wallet:${String(user.walletAddress || user.id).toLowerCase()}` : user.id
     const profile = await upsertProfile({

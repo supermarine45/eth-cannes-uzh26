@@ -114,6 +114,7 @@ export default function SettingsTab() {
     }
 
     await saveOnboarding({
+      syncEnsOnchain: false,
       fullName: profile.full_name,
       dateOfBirth: profile.date_of_birth,
       ensName: profile.ens_name,
