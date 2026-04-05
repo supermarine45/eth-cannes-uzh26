@@ -113,13 +113,13 @@ function normalizeAddress(value) {
   return trimmed.toLowerCase()
 }
 
-function sanitizeCannesUsername(value) {
-  const normalized = String(value || '').trim().toLowerCase()
-  return normalized
-    .replace(/\.cannes$/i, '')
-    .split('.')[0]
-    .replace(/[^a-z0-9]/g, '')
-}
+// function sanitizeCannesUsername(value) {
+//   const normalized = String(value || '').trim().toLowerCase()
+//   return normalized
+//     .replace(/\.cannes$/i, '')
+//     .split('.')[0]
+//     .replace(/[^a-z0-9]/g, '')
+// }
 
 function resolvePrefillName({ profile, session, user }) {
   if (profile?.full_name) {
@@ -207,7 +207,7 @@ export default function OnboardingForm() {
       setFullName(isMetaMaskSignup ? '' : resolvePrefillName({ profile, session, user }))
       setEmailAddress(String(profile.email || user?.email || session?.user?.email || '').trim())
       setDateOfBirth(profile.date_of_birth ?? '')
-      setEnsUsername(sanitizeCannesUsername(profile.ens_name ?? ''))
+      setEnsUsername((profile.ens_name ?? ''))
       setAccountType(profile.account_type ?? 'individual')
       setCompanyName(profile.company_name ?? '')
       setBusinessAddress(profile.business_address ?? '')
