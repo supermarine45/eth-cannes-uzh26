@@ -24,7 +24,7 @@ const tabConfig = {
     { id: 'trade', name: 'Trade', icon: '📈' },
     { id: 'payments', name: 'Payments', icon: '💳' },
     { id: 'payees', name: 'Payees', icon: '👥' },
-    { id: 'invoices', name: 'Invoices', icon: '📋' },
+    { id: 'invoices', name: 'Invoices & Subscriptions', icon: '📋' },
     { id: 'bills', name: 'Bills', icon: '📄' },
     { id: 'ledger', name: 'Ledger', icon: '📊' },
     { id: 'settings', name: 'Settings', icon: '⚙️' },
@@ -42,15 +42,15 @@ export default function Dashboard({ activeTab = 'wallet', onTabChange }) {
 
   function renderTabContent(tabId) {
     switch (tabId) {
-      case 'wallet':   return <WalletBalanceTab />
-      case 'trade':    return <TradeTab />
-      case 'payments': return <PaymentsTab />
-      case 'payees':   return <PayeesTab userWallet={userWallet} />
-      case 'invoices': return <InvoicesTab userWallet={userWallet} isMerchant={isMerchant} />
-      case 'bills':    return <BillsTab userWallet={userWallet} />
-      case 'ledger':   return <LedgerTab userWallet={userWallet} />
-      case 'settings': return <SettingsTab />
-      default:         return <WalletBalanceTab />
+      case 'wallet':        return <WalletBalanceTab />
+      case 'trade':         return <TradeTab />
+      case 'payments':      return <PaymentsTab />
+      case 'payees':        return <PayeesTab userWallet={userWallet} />
+      case 'invoices':      return <InvoicesTab userWallet={userWallet} isMerchant={isMerchant} />
+      case 'bills':         return <BillsTab userWallet={userWallet} />
+      case 'ledger':        return <LedgerTab userWallet={userWallet} />
+      case 'settings':      return <SettingsTab />
+      default:              return <WalletBalanceTab />
     }
   }
 

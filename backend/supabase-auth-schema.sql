@@ -105,3 +105,94 @@ create policy "auth_user_wallet_addresses service role only"
   to service_role
   using (true)
   with check (true);
+
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+create table if not exists public.merchant_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  subscription_id text not null unique,
+  merchant_wallet text not null,
+  subscriber_wallet text not null,
+  description text not null default '',
+  amount_usd numeric(18,2) not null check (amount_usd > 0),
+  frequency text not null check (frequency in ('daily', 'weekly', 'monthly', 'quarterly', 'yearly')),
+  start_date date not null,
+  end_date date,
+  next_execution_at timestamptz,
+  last_executed_at timestamptz,
+  last_payment_id text,
+  last_gateway_url text,
+  execution_attempts integer not null default 0,
+  status text not null default 'scheduled' check (status in ('scheduled', 'processing', 'active', 'paused', 'completed', 'failed', 'cancelled')),
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_merchant_subscriptions_due
+  on public.merchant_subscriptions (next_execution_at, status)
+  where status in ('scheduled', 'active');
+
+create index if not exists idx_merchant_subscriptions_merchant
+  on public.merchant_subscriptions (merchant_wallet);
+
+create index if not exists idx_merchant_subscriptions_subscriber
+  on public.merchant_subscriptions (subscriber_wallet);
+
+drop trigger if exists merchant_subscriptions_set_updated_at on public.merchant_subscriptions;
+create trigger merchant_subscriptions_set_updated_at
+  before update on public.merchant_subscriptions
+  for each row execute function public.set_updated_at();
+
+create table if not exists public.merchant_subscription_executions (
+  id bigint generated always as identity primary key,
+  subscription_id uuid not null references public.merchant_subscriptions(id) on delete cascade,
+  run_number integer not null,
+  scheduled_for timestamptz not null,
+  executed_at timestamptz,
+  status text not null default 'pending' check (status in ('pending', 'executed', 'failed', 'skipped')),
+  payment_id text,
+  gateway_url text,
+  error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(subscription_id, run_number)
+);
+
+create index if not exists idx_merchant_subscription_executions_subscription
+  on public.merchant_subscription_executions (subscription_id, run_number desc);
+
+create index if not exists idx_merchant_subscription_executions_scheduled_for
+  on public.merchant_subscription_executions (scheduled_for);
+
+drop trigger if exists merchant_subscription_executions_set_updated_at on public.merchant_subscription_executions;
+create trigger merchant_subscription_executions_set_updated_at
+  before update on public.merchant_subscription_executions
+  for each row execute function public.set_updated_at();
+
+alter table public.merchant_subscriptions enable row level security;
+alter table public.merchant_subscription_executions enable row level security;
+
+drop policy if exists "merchant_subscriptions service role only" on public.merchant_subscriptions;
+create policy "merchant_subscriptions service role only"
+  on public.merchant_subscriptions
+  for all
+  to service_role
+  using (true)
+  with check (true);
+
+drop policy if exists "merchant_subscription_executions service role only" on public.merchant_subscription_executions;
+create policy "merchant_subscription_executions service role only"
+  on public.merchant_subscription_executions
+  for all
+  to service_role
+  using (true)
+  with check (true);

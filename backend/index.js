@@ -11,6 +11,8 @@ const {
 } = require("./src/walletconnect-pay");
 const { createSolidityPaymentRegistry } = require("./src/solidity-payments");
 const { createInvoiceRegistry } = require("./src/invoice-registry");
+const { createSubscriptionRegistry, FREQUENCY_OPTIONS } = require("./src/subscription-registry");
+const { startSubscriptionExecutionLoop } = require("./src/subscription-executor");
 const { createEnsCommerceRegistry } = require("./ens-commerce");
 const { calculateTokenAmount } = require("./src/flare-service");
 const { buildSwapToUSDC, getLiveEthUsdcRates, ETH_ADDRESS } = require("./src/uniswap-service");
@@ -20,6 +22,8 @@ const app = express();
 const client = createWalletConnectPayClient();
 const paymentRegistry = createSolidityPaymentRegistry();
 const invoiceRegistry = createInvoiceRegistry();
+const subscriptionRegistry = createSubscriptionRegistry();
+let stopSubscriptionExecutor = null;
 const ensRegistry = createEnsCommerceRegistry();
 const port = Number(process.env.PORT || 3000);
 
@@ -639,6 +643,111 @@ app.get("/api/solidity/payment/:paymentId", async (req, res) => {
   }
 });
 
+// POST /api/merchant/subscription
+// Body: { merchantWallet, subscriberWallet, description, amountUSD, frequency, startDate, endDate }
+app.post("/api/merchant/subscription", async (req, res) => {
+  try {
+    if (!subscriptionRegistry) {
+      return sendError(res, 503, "Subscription store not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.");
+    }
+
+    const { merchantWallet, subscriberWallet, description, amountUSD, frequency, startDate, endDate } = req.body ?? {};
+
+    // Validation
+    if (!merchantWallet || !subscriberWallet) {
+      return sendError(res, 400, "merchantWallet and subscriberWallet required");
+    }
+    if (!amountUSD || typeof amountUSD !== "number" || amountUSD <= 0) {
+      return sendError(res, 400, "amountUSD must be a positive number");
+    }
+    if (!frequency || !FREQUENCY_OPTIONS.includes(frequency)) {
+      return sendError(res, 400, `frequency must be one of: ${FREQUENCY_OPTIONS.join(", ")}`);
+    }
+    if (!startDate) {
+      return sendError(res, 400, "startDate required (YYYY-MM-DD format)");
+    }
+
+    const subscriptionId = `sub-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    try {
+      const subscription = await subscriptionRegistry.createSubscription({
+        merchant: merchantWallet,
+        subscriber: subscriberWallet,
+        subscriptionId,
+        description: description || "",
+        amountUSD,
+        frequency,
+        startDate,
+        endDate: endDate || null,
+      });
+
+      res.json(subscription);
+    } catch (chainErr) {
+      console.error("Subscription storage failed:", chainErr.message);
+      sendError(res, 500, `Subscription storage failed: ${chainErr.message}`);
+    }
+  } catch (error) {
+    sendError(res, 500, error.message);
+  }
+});
+
+// GET /api/merchant/subscriptions?wallet=0x...
+app.get("/api/merchant/subscriptions", async (req, res) => {
+  try {
+    if (!subscriptionRegistry) {
+      return sendError(res, 503, "Subscription store not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.");
+    }
+
+    const { wallet } = req.query;
+    if (!wallet) {
+      return sendError(res, 400, "wallet query param required");
+    }
+
+    const subscriptions = await subscriptionRegistry.getByMerchant(wallet);
+    res.json(subscriptions);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+// GET /api/merchant/subscription/:subscriptionId
+app.get("/api/merchant/subscription/:subscriptionId", async (req, res) => {
+  try {
+    if (!subscriptionRegistry) {
+      return sendError(res, 503, "Subscription store not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.");
+    }
+
+    const subscription = await subscriptionRegistry.getSubscription(req.params.subscriptionId);
+    if (!subscription) {
+      return sendError(res, 404, `Subscription not found: ${req.params.subscriptionId}`);
+    }
+
+    res.json(subscription);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
+// PATCH /api/merchant/subscription/:subscriptionId
+// Body: { isActive: boolean }
+app.patch("/api/merchant/subscription/:subscriptionId", async (req, res) => {
+  try {
+    if (!subscriptionRegistry) {
+      return sendError(res, 503, "Subscription store not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.");
+    }
+
+    const { isActive } = req.body ?? {};
+    if (typeof isActive !== "boolean") {
+      return sendError(res, 400, "isActive boolean required");
+    }
+
+    const result = await subscriptionRegistry.updateSubscriptionStatus(req.params.subscriptionId, isActive);
+    res.json(result);
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
 app.use((req, res) => {
   if (req.accepts("html")) {
     res.sendFile(path.join(__dirname, "..", "frontend", "index.html"));
@@ -652,6 +761,7 @@ if (require.main === module) {
   const server = app.listen(port, () => {
     console.log(`✓ WalletConnect Pay backend listening on port ${port}`);
     console.log(`✓ Server is ready to accept connections`);
+    stopSubscriptionExecutor = startSubscriptionExecutionLoop(subscriptionRegistry);
   });
 
   server.on('error', (error) => {

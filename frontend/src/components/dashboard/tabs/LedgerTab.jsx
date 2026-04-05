@@ -101,11 +101,11 @@ export default function LedgerTab({ userWallet }) {
       {effectiveWallet && (
         <div className="grid gap-4 md:grid-cols-2">
           <div className="rounded-xl border border-border bg-background p-4">
-            <p className="text-sm text-muted-foreground">Total Invoiced (paid)</p>
+            <p className="text-sm text-muted-foreground">Total Payments Made</p>
             <p className="mt-2 text-2xl font-semibold text-foreground">${totalSent}</p>
           </div>
           <div className="rounded-xl border border-border bg-background p-4">
-            <p className="text-sm text-muted-foreground">Total Paid Out</p>
+            <p className="text-sm text-muted-foreground">Total Payments Received</p>
             <p className="mt-2 text-2xl font-semibold text-foreground">${totalReceived}</p>
           </div>
         </div>

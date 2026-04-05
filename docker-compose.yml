@@ -14,7 +14,7 @@ services:
     volumes:
       - ./backend:/app
       - /app/node_modules
-    command: npm start
+    command: sh -c "npm install && npm start"
 
   frontend:
     build:
