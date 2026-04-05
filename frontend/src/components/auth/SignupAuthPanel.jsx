@@ -53,6 +53,11 @@ export default function SignupAuthPanel({ onBack }) {
       if (data?.session?.access_token) {
         const nextSession = normalizeAuthSessionPayload(data.session, 'email')
         applySession(nextSession)
+      } else if (data?.user?.id) {
+        // Email confirmation required - show success message
+        setError(`Check your email (${email.trim()}) to confirm your account before signing in.`)
+      } else {
+        throw new Error('Signup failed. Please try again.')
       }
     })
   }

@@ -120,6 +120,7 @@ export default function SettingsTab() {
     await saveOnboarding({
       fullName: profile.full_name,
       dateOfBirth: profile.date_of_birth,
+      ensName: profile.ens_name,
       accountType: profile.account_type,
       companyName: profile.account_type === 'business' ? profile.company_name : null,
       businessAddress: profile.account_type === 'business' ? profile.business_address : null,
@@ -263,6 +264,13 @@ export default function SettingsTab() {
             <p className="text-xs font-medium text-muted-foreground">Full Name</p>
             <p className="mt-2 font-medium text-foreground">{profile?.full_name || 'Not set'}</p>
           </div>
+
+          {profile?.ens_name && (
+            <div className="rounded-lg border border-border bg-background p-4">
+              <p className="text-xs font-medium text-muted-foreground">ENS Name</p>
+              <p className="mt-2 font-medium text-foreground">{profile.ens_name}</p>
+            </div>
+          )}
 
           <div className="rounded-lg border border-border bg-background p-4">
             <p className="text-xs font-medium text-muted-foreground">Email Address</p>

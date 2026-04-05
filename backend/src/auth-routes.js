@@ -72,6 +72,7 @@ function summarizeProfile(profile) {
     principal_id: profile.principal_id,
     auth_provider: profile.auth_provider,
     full_name: profile.full_name,
+    ens_name: profile.ens_name,
     account_type: profile.account_type,
     company_name: profile.company_name,
     business_address: profile.business_address,
@@ -223,8 +224,11 @@ async function supabaseRequest(path, { method = 'GET', body, accessToken, servic
   }
 
   if (!response.ok) {
-    const message = data?.error_description || data?.error || data?.message || `Request failed with status ${response.status}`
-    throw new Error(message)
+    const message = data?.error_description || data?.error || data?.msg || data?.message || `Request failed with status ${response.status}`
+    const error = new Error(message)
+    error.statusCode = response.status
+    error.details = data
+    throw error
   }
 
   return data
@@ -273,6 +277,7 @@ function validateOnboardingInput(body, provider = 'email') {
   const accountType = normalizeAccountType(body?.accountType ?? body?.account_type)
   const companyName = String(body?.companyName ?? body?.company_name ?? '').trim()
   const businessAddress = String(body?.businessAddress ?? body?.business_address ?? '').trim()
+  const ensName = String(body?.ensName ?? body?.ens_name ?? '').trim()
 
   if (provider !== 'metamask' && !fullName) {
     throw new Error('fullName is required.')
@@ -309,6 +314,7 @@ function validateOnboardingInput(body, provider = 'email') {
     accountType,
     companyName: companyName || null,
     businessAddress: businessAddress || null,
+    ensName: ensName || null,
   }
 }
 
@@ -371,7 +377,7 @@ async function deleteWalletTrackingRows(walletAddresses) {
   }
 }
 
-async function upsertProfile({ principalId, authProvider, fullName, dateOfBirth, accountType, companyName, businessAddress, email }) {
+async function upsertProfile({ principalId, authProvider, fullName, dateOfBirth, accountType, companyName, businessAddress, email, ensName }) {
   const rows = await supabaseRestRequest('auth_user_profiles?on_conflict=principal_id', {
     method: 'POST',
     body: [{
@@ -382,6 +388,7 @@ async function upsertProfile({ principalId, authProvider, fullName, dateOfBirth,
       account_type: accountType,
       company_name: companyName,
       business_address: businessAddress,
+      ens_name: ensName,
       email: email || null,
       onboarding_completed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -492,27 +499,47 @@ router.post('/signup/email', async (req, res) => {
       metadataKeys: metadata && typeof metadata === 'object' ? Object.keys(metadata) : [],
     })
 
-    const data = await supabaseAuthRequest('/signup', {
+    // Use admin API to create user and bypass email verification
+    const adminData = await supabaseAdminAuthRequest('/users', {
       method: 'POST',
       body: {
         email: email.trim(),
         password,
-        options: {
-          data: metadata && typeof metadata === 'object' ? metadata : {},
-        },
+        user_metadata: metadata && typeof metadata === 'object' ? metadata : {},
+        email_confirm: true, // Auto-confirm email to avoid rate limiting on verification emails
+      },
+    })
+
+    // Now get a session for this user using the standard auth endpoint
+    const sessionData = await supabaseAuthRequest('/token?grant_type=password', {
+      method: 'POST',
+      body: {
+        email: email.trim(),
+        password,
       },
     })
 
     logAuthEvent('signup.email.response', {
       email: email.trim().toLowerCase(),
-      hasSession: Boolean(data?.session),
-      provider: data?.user?.app_metadata?.provider || 'email',
-      userId: data?.user?.id || null,
+      hasSession: Boolean(sessionData?.access_token),
+      hasUser: Boolean(adminData?.id),
+      provider: 'email',
+      userId: adminData?.id || null,
     })
 
-    res.json(data)
+    res.json({
+      session: sessionData || null,
+      user: adminData || null,
+    })
   } catch (error) {
-    res.status(400).json({ error: error.message })
+    logAuthEvent('signup.email.error', {
+      email: req.body?.email ? req.body.email.trim().toLowerCase() : 'unknown',
+      errorMessage: error.message,
+      statusCode: error.statusCode,
+      errorDetails: error.details,
+    })
+    const statusCode = error.statusCode || 400
+    res.status(statusCode).json({ error: error.message })
   }
 })
 
@@ -548,7 +575,8 @@ router.post('/login/email', async (req, res) => {
 
     res.json({ session })
   } catch (error) {
-    res.status(400).json({ error: error.message })
+    const statusCode = error.statusCode || 400
+    res.status(statusCode).json({ error: error.message })
   }
 })
 
@@ -578,7 +606,8 @@ router.post('/refresh', async (req, res) => {
 
     res.json({ session })
   } catch (error) {
-    res.status(400).json({ error: error.message })
+    const statusCode = error.statusCode || 400
+    res.status(statusCode).json({ error: error.message })
   }
 })
 
@@ -896,6 +925,7 @@ router.post('/onboarding', async (req, res) => {
       companyName: parsed.companyName,
       businessAddress: parsed.businessAddress,
       email: user.email || req.body?.email || null,
+      ensName: parsed.ensName,
     })
 
     const linkedWallets = await replaceWalletAddresses(profile.id, walletAddresses)

@@ -148,6 +148,7 @@ export default function OnboardingForm() {
   const isMetaMaskSignup = session?.provider === 'metamask'
   const [fullName, setFullName] = useState('')
   const [emailAddress, setEmailAddress] = useState('')
+  const [ensName, setEnsName] = useState('')
   const [dateOfBirth, setDateOfBirth] = useState('')
   const [accountType, setAccountType] = useState('individual')
   const [companyName, setCompanyName] = useState('')
@@ -188,6 +189,7 @@ export default function OnboardingForm() {
       setFullName(isMetaMaskSignup ? '' : resolvePrefillName({ profile, session, user }))
       setEmailAddress(String(profile.email || user?.email || session?.user?.email || '').trim())
       setDateOfBirth(profile.date_of_birth ?? '')
+      setEnsName(profile.ens_name ?? '')
       setAccountType(profile.account_type ?? 'individual')
       setCompanyName(profile.company_name ?? '')
       setBusinessAddress(profile.business_address ?? '')
@@ -326,6 +328,7 @@ export default function OnboardingForm() {
         authProvider: session?.provider,
         fullName: isMetaMaskSignup ? null : fullName,
         dateOfBirth,
+        ensName,
         accountType,
         companyName: accountType === 'business' ? companyName : null,
         businessAddress: accountType === 'business' ? businessAddress : null,
@@ -377,6 +380,18 @@ export default function OnboardingForm() {
         <div>
           <label className={label} htmlFor="dateOfBirth">Date of birth</label>
           <input id="dateOfBirth" type="date" className={input} value={dateOfBirth} onChange={(event) => setDateOfBirth(event.target.value)} />
+        </div>
+
+        <div>
+          <label className={label} htmlFor="ensName">ENS Name</label>
+          <input
+            id="ensName"
+            className={input}
+            value={ensName}
+            onChange={(event) => setEnsName(event.target.value)}
+            placeholder="yourname.eth"
+          />
+          <p className="mt-1 text-xs text-muted-foreground">Your ENS name associated with this account</p>
         </div>
 
         <div className="md:col-span-2">

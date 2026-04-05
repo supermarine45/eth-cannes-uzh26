@@ -71,7 +71,7 @@ async function request(path, options = {}) {
   }
 
   const primaryTargets = [primaryUrl]
-  if (!primaryTargets.includes(devFallbackUrl)) {
+  if (!primaryTargets.includes(devFallbackUrl) && primaryUrl !== devFallbackUrl) {
     primaryTargets.push(devFallbackUrl)
   }
 
