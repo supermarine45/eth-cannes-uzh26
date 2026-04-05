@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const path = require("path");
+const { ethers } = require("ethers");
 const { router: authRouter } = require("./src/auth-routes");
 const {
   buildAccounts,
@@ -17,6 +18,7 @@ const { createEnsCommerceRegistry } = require("./ens-commerce");
 const { calculateTokenAmount } = require("./src/flare-service");
 const { buildSwapToUSDC, getLiveEthUsdcRates, ETH_ADDRESS } = require("./src/uniswap-service");
 const { getCommodityUSDPrice, getCommodityInCrypto, getAllCommodityPrices } = require("./src/commodity-service");
+const { normalizeCannesEnsName } = require("./src/ens-name");
 
 const app = express();
 const client = createWalletConnectPayClient();
@@ -423,7 +425,8 @@ app.post("/api/ens/register-profile", async (req, res) => {
     if (!ownerAddress || !ensName) {
       return sendError(res, 400, "ownerAddress and ensName required");
     }
-    const result = await ensRegistry.registerProfile(ownerAddress, ensName, ensNode, profileURI);
+    const normalizedEnsName = normalizeCannesEnsName(ensName);
+    const result = await ensRegistry.registerProfile(ownerAddress, normalizedEnsName, ensNode, profileURI);
     res.json(result);
   } catch (error) {
     sendError(res, 400, error.message);
@@ -436,7 +439,8 @@ app.post("/api/ens/update-profile", async (req, res) => {
     if (!ownerAddress || !ensName) {
       return sendError(res, 400, "ownerAddress and ensName required");
     }
-    const result = await ensRegistry.updateProfile(ownerAddress, ensName, ensNode, profileURI, active);
+    const normalizedEnsName = normalizeCannesEnsName(ensName);
+    const result = await ensRegistry.updateProfile(ownerAddress, normalizedEnsName, ensNode, profileURI, active);
     res.json(result);
   } catch (error) {
     sendError(res, 400, error.message);

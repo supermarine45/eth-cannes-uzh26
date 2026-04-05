@@ -44,13 +44,24 @@ create table if not exists public.auth_user_profiles (
 );
 
 alter table public.auth_user_profiles
+  drop constraint if exists auth_user_profiles_ens_name_cannes_check;
+
+alter table public.auth_user_profiles
+  add constraint auth_user_profiles_ens_name_cannes_check
+  check (ens_name is not null and ens_name ~ '^[a-z0-9]+\.cannes$') not valid;
+
+create unique index if not exists idx_auth_user_profiles_ens_name_lower
+  on public.auth_user_profiles (lower(ens_name))
+  where ens_name is not null and ens_name ~ '^[a-z0-9]+\.cannes$';
+
+alter table public.auth_user_profiles
   add column if not exists date_of_birth date;
 
 alter table public.auth_user_profiles
   add column if not exists account_type text;
 
 alter table public.auth_user_profiles
-  add column if not exists ens_name text unique;
+  add column if not exists ens_name text;
 
 alter table public.auth_user_profiles
   add column if not exists company_name text;
