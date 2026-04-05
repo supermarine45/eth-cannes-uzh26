@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/useAuth'
+import { normalizeCannesEnsName } from '@/lib/ens'
 
 const label = 'mb-1 block text-sm font-medium text-foreground'
 const input = 'w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground/80 focus:border-ring focus:ring-2 focus:ring-ring/40'
@@ -337,11 +338,13 @@ export default function OnboardingForm() {
         throw new Error('Connect at least one wallet address before continuing.')
       }
 
+      const normalizedEnsName = normalizeCannesEnsName(ensName)
+
       await saveOnboarding({
         authProvider: session?.provider,
         fullName: isMetaMaskSignup ? null : fullName,
         dateOfBirth,
-        ensName,
+        ensName: normalizedEnsName,
         accountType,
         companyName: accountType === 'business' ? companyName : null,
         businessAddress: accountType === 'business' ? businessAddress : null,
@@ -403,9 +406,13 @@ export default function OnboardingForm() {
             className={input}
             value={ensName}
             onChange={(event) => setEnsName(event.target.value)}
-            placeholder="yourname.eth"
+            placeholder="yourname.cannes"
+            required
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck="false"
           />
-          <p className="mt-1 text-xs text-muted-foreground">Your ENS name associated with this account</p>
+          <p className="mt-1 text-xs text-muted-foreground">Required. Use letters or numbers, then .cannes.</p>
         </div>
 
         {requiresAppPassword ? (

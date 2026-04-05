@@ -1,6 +1,7 @@
 const crypto = require('crypto')
 const express = require('express')
 const { ethers } = require('ethers')
+const { normalizeCannesEnsName } = require('./ens-name')
 
 const router = express.Router()
 
@@ -291,8 +292,7 @@ function validateOnboardingInput(body, provider = 'email') {
   const accountType = normalizeAccountType(body?.accountType ?? body?.account_type)
   const companyName = String(body?.companyName ?? body?.company_name ?? '').trim()
   const businessAddress = String(body?.businessAddress ?? body?.business_address ?? '').trim()
-  const ensName = String(body?.ensName ?? body?.ens_name ?? '').trim()
-  const appPassword = String(body?.appPassword ?? '').trim()
+  const ensName = normalizeCannesEnsName(body?.ensName ?? body?.ens_name)
 
   if (provider !== 'metamask' && !fullName) {
     throw new Error('fullName is required.')
@@ -325,6 +325,10 @@ function validateOnboardingInput(body, provider = 'email') {
     if (!businessAddress) {
       throw new Error('businessAddress is required for business or merchant accounts.')
     }
+  }
+
+  if (!ensName) {
+    throw new Error('ensName is required.')
   }
 
   return {
@@ -410,7 +414,14 @@ async function deleteWalletTrackingRows(walletAddresses) {
   }
 }
 
-async function upsertProfile({ principalId, authProvider, fullName, dateOfBirth, accountType, companyName, businessAddress, email, ensName, appPasswordHash }) {
+async function upsertProfile({ principalId, authProvider, fullName, dateOfBirth, accountType, companyName, businessAddress, email, ensName }) {
+  const existingProfile = await getProfileByPrincipal(principalId)
+  const nextEnsName = ensName ?? existingProfile?.ens_name ?? null
+
+  if (!nextEnsName) {
+    throw new Error('ensName is required.')
+  }
+
   const rows = await supabaseRestRequest('auth_user_profiles?on_conflict=principal_id', {
     method: 'POST',
     body: [{
@@ -421,7 +432,7 @@ async function upsertProfile({ principalId, authProvider, fullName, dateOfBirth,
       account_type: accountType,
       company_name: companyName,
       business_address: businessAddress,
-      ens_name: ensName,
+      ens_name: nextEnsName,
       email: email || null,
       app_password_hash: appPasswordHash,
       onboarding_completed_at: new Date().toISOString(),
