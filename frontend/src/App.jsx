@@ -321,7 +321,7 @@ export default function App() {
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="outline" className="px-5" onClick={() => { clearSession('Session cleared.'); navigate('/auth', 'login') }}>Switch Account</Button>
-                <Button className="px-5" onClick={() => { clearSession('Session cleared.'); navigate('/auth', 'signup') }}>New Account</Button>
+                <Button className="px-5" onClick={() => { clearSession('Logged out.'); navigate('/') }}>Logout</Button>
               </div>
             </header>
 

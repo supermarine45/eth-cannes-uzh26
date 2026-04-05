@@ -100,6 +100,20 @@ function summarizeWalletAddress(entry) {
   }
 }
 
+function mapOnboardingErrorMessage(error) {
+  const rawMessage = String(error?.message || '').toLowerCase()
+
+  const isWalletUniqueViolation = rawMessage.includes('auth_user_wallet_addresses_wallet_address_key')
+    || (rawMessage.includes('duplicate key value violates unique constraint')
+      && rawMessage.includes('wallet_address'))
+
+  if (isWalletUniqueViolation) {
+    return 'There exists an account with this address, either login or add a different account.'
+  }
+
+  return error?.message || 'Onboarding failed.'
+}
+
 function base64UrlEncode(value) {
   return Buffer.from(value).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
 }
@@ -958,7 +972,7 @@ router.post('/onboarding', async (req, res) => {
       onboardingRequired: false,
     })
   } catch (error) {
-    res.status(400).json({ error: error.message })
+    res.status(400).json({ error: mapOnboardingErrorMessage(error) })
   }
 })
 

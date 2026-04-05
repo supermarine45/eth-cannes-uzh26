@@ -251,6 +251,13 @@ function createSubscriptionRegistry() {
       return Array.isArray(rows) ? rows.map(formatSubscription) : [];
     },
 
+    async getBySubscriber(subscriberAddress) {
+      const rows = await supabaseRestRequest(
+        `merchant_subscriptions?subscriber_wallet=eq.${encodeURIComponent(normalizeAddress(subscriberAddress))}&order=created_at.desc&select=*`,
+      );
+      return Array.isArray(rows) ? rows.map(formatSubscription) : [];
+    },
+
     async updateSubscriptionStatus(subscriptionId, isActive) {
       return updateSubscriptionRow(subscriptionId, {
         status: isActive ? "active" : "paused",

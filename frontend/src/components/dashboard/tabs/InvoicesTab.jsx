@@ -107,15 +107,15 @@ export default function InvoicesTab({ userWallet }) {
       const payload = formData.paymentType === 'one-time'
         ? {
             amountUSD: parseFloat(formData.amount),
-            merchantWallet: effectiveWallet,
-            recipientWallet: formData.recipientWallet,
+            merchantWallet: effectiveWallet.trim(),
+            recipientWallet: formData.recipientWallet.trim(),
             description: formData.description,
             dueDate: formData.dueDate || null,
             referenceId: `omni-${Date.now()}`,
           }
         : {
-            merchantWallet: effectiveWallet,
-            subscriberWallet: formData.recipientWallet,
+            merchantWallet: effectiveWallet.trim(),
+            subscriberWallet: formData.recipientWallet.trim(),
             description: formData.description,
             amountUSD: parseFloat(formData.amount),
             frequency: formData.frequency,
@@ -257,12 +257,7 @@ export default function InvoicesTab({ userWallet }) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
           <h2 className="text-xl font-semibold text-foreground">Invoices & Subscriptions</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Generate payment links and store subscriptions in <span className="font-medium text-foreground">Supabase</span>, then execute them on schedule.
-          </p>
-        </div>
         <Button onClick={() => setShowGenerateForm(!showGenerateForm)}>
           {showGenerateForm ? 'Cancel' : 'Generate'}
         </Button>
