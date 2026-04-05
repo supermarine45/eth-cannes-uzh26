@@ -8,6 +8,7 @@ const AUTH_WALLET_VERIFY_PATH = '/api/auth/wallet/verify'
 const AUTH_ME_PATH = '/api/auth/me'
 const AUTH_ONBOARDING_PATH = '/api/auth/onboarding'
 const AUTH_REFRESH_PATH = '/api/auth/refresh'
+const AUTH_PASSWORD_CHANGE_PATH = '/api/auth/password/change'
 
 const DEV_AUTH_BASE_URL = 'http://localhost:3000'
 
@@ -190,6 +191,16 @@ export function deleteAuthAccount(accessToken) {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
+  })
+}
+
+export function changeAuthPassword(accessToken, payload) {
+  return request(AUTH_PASSWORD_CHANGE_PATH, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
   })
 }
 

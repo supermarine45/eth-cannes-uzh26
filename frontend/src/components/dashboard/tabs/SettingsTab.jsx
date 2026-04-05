@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '@/context/useAuth'
 import { Button } from '@/components/ui/button'
-import { deleteAuthAccount } from '@/lib/auth'
+import { changeAuthPassword, deleteAuthAccount } from '@/lib/auth'
 
 function maskWalletAddress(address) {
   const value = String(address || '').trim()
@@ -35,11 +35,25 @@ export default function SettingsTab() {
   const [showDeleteAccountDialog, setShowDeleteAccountDialog] = useState(false)
   const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState('')
   const [showAddWalletPopover, setShowAddWalletPopover] = useState(false)
+  const [emailInput, setEmailInput] = useState(profile?.email || '')
+  const [emailError, setEmailError] = useState('')
+  const [emailSuccess, setEmailSuccess] = useState('')
+  const [savingEmail, setSavingEmail] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordError, setPasswordError] = useState('')
+  const [passwordSuccess, setPasswordSuccess] = useState('')
+  const [savingPassword, setSavingPassword] = useState(false)
 
   const deleteAccountPhrase = 'I want to Delete my account'
 
   const accountType = profile?.account_type || 'individual'
   const accountTypeLabel = accountType === 'business' ? 'Merchant' : 'Individual'
+  const displayEmail = user?.email || profile?.email || ''
+  const isEmailMissing = !displayEmail
+  const authProvider = user?.provider || user?.app_metadata?.provider || session?.provider || 'email'
+  const hasAppPassword = authProvider === 'email' ? true : Boolean(profile?.hasAppPassword ?? profile?.has_app_password)
 
   
   const openDeleteAccountDialog = () => {
@@ -108,25 +122,111 @@ export default function SettingsTab() {
     isPrimary: Boolean(entry.is_primary),
   }))
 
+  const buildOnboardingPayload = (overrides = {}) => ({
+    fullName: profile?.full_name,
+    dateOfBirth: profile?.date_of_birth,
+    ensName: profile?.ens_name,
+    accountType: profile?.account_type,
+    companyName: profile?.account_type === 'business' ? profile?.company_name : null,
+    businessAddress: profile?.account_type === 'business' ? profile?.business_address : null,
+    email: user?.email || profile?.email || null,
+    walletAddresses: getCurrentWallets().map((entry, index) => ({
+      address: entry.address,
+      label: entry.label || '',
+      isPrimary: entry.isPrimary || index === 0,
+    })),
+    ...overrides,
+  })
+
   const persistWallets = async (nextWallets) => {
     if (!profile?.full_name || !profile?.date_of_birth || !profile?.account_type) {
       throw new Error('Complete onboarding first before editing wallets in Settings.')
     }
 
-    await saveOnboarding({
-      fullName: profile.full_name,
-      dateOfBirth: profile.date_of_birth,
-      ensName: profile.ens_name,
-      accountType: profile.account_type,
-      companyName: profile.account_type === 'business' ? profile.company_name : null,
-      businessAddress: profile.account_type === 'business' ? profile.business_address : null,
-      email: user?.email || profile?.email || null,
+    await saveOnboarding(buildOnboardingPayload({
       walletAddresses: nextWallets.map((entry, index) => ({
         address: entry.address,
         label: entry.label || '',
         isPrimary: entry.isPrimary || index === 0,
       })),
-    })
+    }))
+  }
+
+  const handleSaveEmail = async () => {
+    setEmailError('')
+    setEmailSuccess('')
+
+    const value = emailInput.trim().toLowerCase()
+    if (!value) {
+      setEmailError('Please enter an email address.')
+      return
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      setEmailError('Please enter a valid email address.')
+      return
+    }
+
+    if (!profile?.full_name || !profile?.date_of_birth || !profile?.account_type) {
+      setEmailError('Complete onboarding first before updating your email.')
+      return
+    }
+
+    try {
+      setSavingEmail(true)
+      await saveOnboarding(buildOnboardingPayload({ email: value }))
+      setEmailSuccess('Email saved successfully.')
+    } catch (error) {
+      setEmailError(error.message || 'Unable to save email address.')
+    } finally {
+      setSavingEmail(false)
+    }
+  }
+
+  const handleChangePassword = async () => {
+    setPasswordError('')
+    setPasswordSuccess('')
+
+    if (!session?.accessToken) {
+      setPasswordError('No active session found.')
+      return
+    }
+
+    if (!newPassword || newPassword.length < 8) {
+      setPasswordError('New password must be at least 8 characters.')
+      return
+    }
+
+    if (hasAppPassword && !currentPassword && authProvider !== 'email') {
+      setPasswordError('Current password is required.')
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New password and confirmation do not match.')
+      return
+    }
+
+    if (currentPassword && currentPassword === newPassword) {
+      setPasswordError('New password must be different from current password.')
+      return
+    }
+
+    try {
+      setSavingPassword(true)
+      await changeAuthPassword(session.accessToken, {
+        currentPassword,
+        newPassword,
+      })
+      setPasswordSuccess('Password updated successfully.')
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    } catch (error) {
+      setPasswordError(error.message || 'Unable to update password.')
+    } finally {
+      setSavingPassword(false)
+    }
   }
 
   const handleAddWallet = async (addressValue, labelValue = '') => {
@@ -270,8 +370,38 @@ export default function SettingsTab() {
 
           <div className="rounded-lg border border-border bg-background p-4">
             <p className="text-xs font-medium text-muted-foreground">Email Address</p>
-            <p className="mt-2 font-medium text-foreground">{user?.email || 'Not set'}</p>
+            <p className="mt-2 font-medium text-foreground">{displayEmail || 'Not set'}</p>
           </div>
+
+          {isEmailMissing ? (
+            <div className="rounded-xl border border-amber-300/70 bg-amber-50 p-4">
+              <p className="text-sm font-semibold text-amber-900">Email address missing</p>
+              <p className="mt-1 text-sm text-amber-800">
+                Add an email address so we can reach you for account recovery and important updates.
+              </p>
+
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="email"
+                  value={emailInput}
+                  onChange={(event) => setEmailInput(event.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground/80 focus:border-amber-500 focus:ring-2 focus:ring-amber-200"
+                />
+                <Button type="button" variant="secondary" disabled={savingEmail} onClick={handleSaveEmail}>
+                  {savingEmail ? 'Saving...' : 'Save Email'}
+                </Button>
+              </div>
+
+              {emailError ? (
+                <p className="mt-2 text-sm text-destructive">{emailError}</p>
+              ) : null}
+
+              {emailSuccess ? (
+                <p className="mt-2 text-sm text-green-700">{emailSuccess}</p>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="rounded-lg border border-border bg-background p-4">
             <p className="text-xs font-medium text-muted-foreground">Account Type</p>
@@ -460,9 +590,52 @@ export default function SettingsTab() {
       </section>
 
       {/* Session Management */}
+      <section className="space-y-4 border-b border-border pb-8">
+        <h3 className="font-semibold text-foreground">Password</h3>
+        <div className="rounded-xl border border-border bg-background p-4 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            {hasAppPassword
+              ? 'Change your app password.'
+              : 'Set your password to secure account actions in this app.'}
+          </p>
+
+          {hasAppPassword ? (
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              placeholder="Current password"
+              className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground/80 focus:border-ring focus:ring-2 focus:ring-ring/40"
+            />
+          ) : null}
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(event) => setNewPassword(event.target.value)}
+            placeholder={hasAppPassword ? 'New password (min 8 chars)' : 'Set password (min 8 chars)'}
+            className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground/80 focus:border-ring focus:ring-2 focus:ring-ring/40"
+          />
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            placeholder="Confirm new password"
+            className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground/80 focus:border-ring focus:ring-2 focus:ring-ring/40"
+          />
+
+          {passwordError ? <p className="text-sm text-destructive">{passwordError}</p> : null}
+          {passwordSuccess ? <p className="text-sm text-green-700">{passwordSuccess}</p> : null}
+
+          <Button type="button" variant="secondary" disabled={savingPassword} onClick={handleChangePassword}>
+            {savingPassword ? 'Updating...' : (hasAppPassword ? 'Change Password' : 'Set Password')}
+          </Button>
+        </div>
+      </section>
+
+      {/* Session Management */}
       <section className="space-y-4">
-        <h3 className="font-semibold text-foreground">Session</h3>
         <div className="grid gap-3 sm:grid-cols-2">
+          <h3 className="font-semibold text-foreground">Danger Zone</h3>
           <Button variant="destructive" disabled={deletingAccount} onClick={openDeleteAccountDialog} className="w-full">
             Delete Account
           </Button>
