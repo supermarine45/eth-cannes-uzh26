@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getWalletConnectHealth } from '@/lib/walletconnect'
+import { getPaymentOptions, getWalletConnectHealth, inspectPaymentLink } from '@/lib/walletconnect'
 import JsonViewer from '@/components/shared/JsonViewer'
 
 const shell = 'rounded-xl border border-border bg-card p-5 shadow-sm'
@@ -26,27 +26,11 @@ const TESTNETS = {
   },
 }
 
-function getWalletProviderName(provider, fallbackIndex) {
-  if (provider?.isMetaMask) return 'MetaMask'
-  if (provider?.isCoinbaseWallet) return 'Coinbase Wallet'
-  if (provider?.isRabby) return 'Rabby'
-  if (provider?.isTrust || provider?.isTrustWallet) return 'Trust Wallet'
-  if (provider?.isBraveWallet) return 'Brave Wallet'
-  return `Injected Wallet ${fallbackIndex + 1}`
-}
-
-function getInjectedProviders() {
-  if (!window.ethereum) return []
-
-  const candidates = Array.isArray(window.ethereum.providers) && window.ethereum.providers.length > 0
-    ? window.ethereum.providers
-    : [window.ethereum]
-
-  return candidates.map((provider, index) => ({
-    id: `${getWalletProviderName(provider, index)}-${index}`,
-    name: getWalletProviderName(provider, index),
-    provider,
-  }))
+function parseChainIds(value) {
+  return value
+    .split(/[\n,]+/)
+    .map((entry) => Number(entry.trim()))
+    .filter((entry) => Number.isInteger(entry) && entry > 0)
 }
 
 function isValidEvmAddress(value) {
@@ -70,18 +54,20 @@ function toWeiHex(amountEth) {
   return `0x${wei.toString(16)}`
 }
 
-export default function WalletConnectConnectionPanel({ onConnected }) {
-  const [providerOptions, setProviderOptions] = useState(() => getInjectedProviders())
-  const [selectedProviderId, setSelectedProviderId] = useState(() => getInjectedProviders()?.[0]?.id ?? '')
+export default function WalletConnectConnectionPanel({ onVerified }) {
   const [connectingWallet, setConnectingWallet] = useState(false)
   const [checkingHealth, setCheckingHealth] = useState(false)
+  const [verifying, setVerifying] = useState(false)
   const [sendingTx, setSendingTx] = useState(false)
   const [error, setError] = useState('')
   const [healthResponse, setHealthResponse] = useState(null)
+  const [inspectResponse, setInspectResponse] = useState(null)
+  const [verifyResponse, setVerifyResponse] = useState(null)
   const [txHash, setTxHash] = useState('')
   const [form, setForm] = useState({
     walletAddress: '',
     chainIds: '1,8453',
+    paymentLink: '',
     recipientAddress: '',
     amountEth: '0.001',
     txChainId: '11155111',
@@ -92,44 +78,27 @@ export default function WalletConnectConnectionPanel({ onConnected }) {
     setForm((prev) => ({ ...prev, [name]: value }))
   }
 
-  const handleRefreshProviders = () => {
-    const providers = getInjectedProviders()
-    setProviderOptions(providers)
-    if (providers.length > 0 && !providers.find((entry) => entry.id === selectedProviderId)) {
-      setSelectedProviderId(providers[0].id)
-    }
-  }
-
-  const resolveSelectedProvider = () => {
-    return providerOptions.find((entry) => entry.id === selectedProviderId) ?? null
-  }
-
-  const handleConnectWallet = async () => {
+  const handleConnectMetaMask = async () => {
     setConnectingWallet(true)
     setError('')
 
     try {
-      if (!window.ethereum || providerOptions.length === 0) {
-        throw new Error('No injected wallet provider found. Install MetaMask, Coinbase Wallet, Rabby, or another EVM wallet extension.')
+      if (!window.ethereum) {
+        throw new Error('MetaMask is not available. Install MetaMask and refresh the page.')
       }
 
-      const selected = resolveSelectedProvider()
-      if (!selected) {
-        throw new Error('Please select a wallet provider.')
-      }
-
-      const accounts = await selected.provider.request({ method: 'eth_requestAccounts' })
-      const chainIdHex = await selected.provider.request({ method: 'eth_chainId' })
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' })
+      const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' })
 
       const walletAddress = Array.isArray(accounts) && accounts.length > 0 ? accounts[0] : ''
       const chainId = Number.parseInt(chainIdHex, 16)
 
       if (!walletAddress) {
-        throw new Error(`${selected.name} did not return an account.`)
+        throw new Error('MetaMask did not return an account.')
       }
 
       if (!Number.isInteger(chainId) || chainId <= 0) {
-        throw new Error(`${selected.name} returned an invalid chain id.`)
+        throw new Error('MetaMask returned an invalid chain id.')
       }
 
       setForm((prev) => ({
@@ -138,30 +107,10 @@ export default function WalletConnectConnectionPanel({ onConnected }) {
         chainIds: String(chainId),
         txChainId: String(chainId),
       }))
-
-      onConnected?.({
-        walletAddress,
-        chainIds: [chainId],
-        providerName: selected.name,
-      })
     } catch (connectError) {
       setError(connectError.message)
     } finally {
       setConnectingWallet(false)
-    }
-  }
-
-  const handleHealthCheck = async () => {
-    setCheckingHealth(true)
-    setError('')
-
-    try {
-      const apiResponse = await getWalletConnectHealth()
-      setHealthResponse(apiResponse)
-    } catch (checkError) {
-      setError(checkError.message)
-    } finally {
-      setCheckingHealth(false)
     }
   }
 
@@ -172,11 +121,8 @@ export default function WalletConnectConnectionPanel({ onConnected }) {
 
     try {
       if (!window.ethereum) {
-        throw new Error('No injected wallet provider found. Install a compatible wallet extension first.')
+        throw new Error('MetaMask is not available. Install MetaMask and refresh the page.')
       }
-
-      const selected = resolveSelectedProvider()
-      const provider = selected?.provider ?? window.ethereum
 
       const from = form.walletAddress.trim()
       const to = form.recipientAddress.trim()
@@ -184,29 +130,29 @@ export default function WalletConnectConnectionPanel({ onConnected }) {
       const network = TESTNETS[txChainId]
 
       if (!isValidEvmAddress(from)) {
-        throw new Error('Connect a wallet first so a valid sender address is available.')
+        throw new Error('Connect MetaMask first so a valid sender address is available.')
       }
 
       if (!isValidEvmAddress(to)) {
-        throw new Error('Recipient address is invalid.')
+        throw new Error('Recipient MetaMask address is invalid.')
       }
 
       if (!network) {
         throw new Error('Selected chain is not a supported testnet.')
       }
 
-      const currentChainHex = await provider.request({ method: 'eth_chainId' })
+      const currentChainHex = await window.ethereum.request({ method: 'eth_chainId' })
       const currentChainId = Number.parseInt(currentChainHex, 16)
 
       if (currentChainId !== txChainId) {
         try {
-          await provider.request({
+          await window.ethereum.request({
             method: 'wallet_switchEthereumChain',
             params: [{ chainId: network.chainIdHex }],
           })
         } catch (switchError) {
           if (switchError?.code === 4902) {
-            await provider.request({
+            await window.ethereum.request({
               method: 'wallet_addEthereumChain',
               params: [
                 {
@@ -225,9 +171,15 @@ export default function WalletConnectConnectionPanel({ onConnected }) {
       }
 
       const value = toWeiHex(form.amountEth)
-      const hash = await provider.request({
+      const hash = await window.ethereum.request({
         method: 'eth_sendTransaction',
-        params: [{ from, to, value }],
+        params: [
+          {
+            from,
+            to,
+            value,
+          },
+        ],
       })
 
       setTxHash(hash)
@@ -238,45 +190,85 @@ export default function WalletConnectConnectionPanel({ onConnected }) {
     }
   }
 
+  const handleHealthCheck = async () => {
+    setCheckingHealth(true)
+    setError('')
+
+    try {
+      const apiResponse = await getWalletConnectHealth()
+      setHealthResponse(apiResponse)
+    } catch (checkError) {
+      setError(checkError.message)
+    } finally {
+      setCheckingHealth(false)
+    }
+  }
+
+  const handleVerify = async (event) => {
+    event.preventDefault()
+    setVerifying(true)
+    setError('')
+    setInspectResponse(null)
+    setVerifyResponse(null)
+
+    try {
+      const paymentLink = form.paymentLink.trim()
+      const walletAddress = form.walletAddress.trim()
+      const chainIds = parseChainIds(form.chainIds)
+
+      const inspect = await inspectPaymentLink({ paymentLink })
+      setInspectResponse(inspect)
+
+      const options = await getPaymentOptions({
+        paymentLink,
+        walletAddress,
+        chainIds,
+        includePaymentInfo: true,
+      })
+      setVerifyResponse(options)
+
+      onVerified?.({
+        walletAddress,
+        chainIds,
+        paymentLink,
+        paymentId: options?.paymentId ?? '',
+        optionId: options?.options?.[0]?.id ?? '',
+      })
+    } catch (verifyError) {
+      setError(verifyError.message)
+    } finally {
+      setVerifying(false)
+    }
+  }
+
   return (
     <section className={shell}>
-      <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground">WALLET PROVIDERS</p>
-      <h2 className="mt-2 text-left text-xl font-semibold text-foreground">Connect Wallet and Send Testnet Transactions</h2>
-      <p className="mt-2 text-left text-sm text-muted-foreground">Connect with MetaMask or other injected wallets, then send testnet ETH to a target EVM wallet address.</p>
+      <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground">WALLETCONNECT CONNECTION</p>
+      <h2 className="mt-2 text-left text-xl font-semibold text-foreground">Connect and Verify</h2>
+      <p className="mt-2 text-left text-sm text-muted-foreground">Check backend availability, validate the payment link, and verify wallet compatibility by fetching options.</p>
 
-      <form className="mt-5 grid gap-4 text-left md:grid-cols-2" onSubmit={(event) => event.preventDefault()}>
-        <div>
-          <label className={label} htmlFor="walletProvider">Wallet Provider</label>
-          <select className={input} id="walletProvider" value={selectedProviderId} onChange={(event) => setSelectedProviderId(event.target.value)}>
-            {providerOptions.length === 0 ? <option value="">No wallet detected</option> : null}
-            {providerOptions.map((option) => (
-              <option key={option.id} value={option.id}>{option.name}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex items-end">
-          <button type="button" onClick={handleRefreshProviders} className={`${button} bg-background text-foreground hover:bg-muted`}>
-            Refresh Providers
-          </button>
-        </div>
-
+      <form className="mt-5 grid gap-4 text-left md:grid-cols-2" onSubmit={handleVerify}>
         <div>
           <label className={label} htmlFor="walletAddress">Wallet Address</label>
           <input className={input} id="walletAddress" name="walletAddress" value={form.walletAddress} onChange={updateField} placeholder="0x..." required />
         </div>
-
         <div>
-          <label className={label} htmlFor="chainIds">Connected Chain IDs</label>
-          <input className={input} id="chainIds" name="chainIds" value={form.chainIds} onChange={updateField} placeholder="11155111" required />
+          <label className={label} htmlFor="chainIds">Chain IDs</label>
+          <input className={input} id="chainIds" name="chainIds" value={form.chainIds} onChange={updateField} placeholder="1,8453" required />
         </div>
-
+        <div className="md:col-span-2">
+          <label className={label} htmlFor="paymentLink">Payment Link or Payment ID</label>
+          <input className={input} id="paymentLink" name="paymentLink" value={form.paymentLink} onChange={updateField} placeholder="https://pay.walletconnect.com/pay_..." required />
+        </div>
         <div className="md:col-span-2 flex flex-wrap gap-2">
-          <button type="button" onClick={handleConnectWallet} className={`${button} bg-primary text-primary-foreground hover:opacity-90`} disabled={connectingWallet}>
-            {connectingWallet ? 'Connecting Wallet...' : 'Connect Selected Wallet'}
+          <button type="button" onClick={handleConnectMetaMask} className={`${button} bg-background text-foreground hover:bg-muted`} disabled={connectingWallet}>
+            {connectingWallet ? 'Connecting MetaMask...' : 'Connect MetaMask'}
           </button>
           <button type="button" onClick={handleHealthCheck} className={`${button} bg-muted text-foreground hover:bg-muted/80`} disabled={checkingHealth}>
             {checkingHealth ? 'Checking...' : 'Check Backend Health'}
+          </button>
+          <button type="submit" className={`${button} bg-primary text-primary-foreground hover:opacity-90`} disabled={verifying}>
+            {verifying ? 'Verifying...' : 'Verify WalletConnect Flow'}
           </button>
         </div>
       </form>
@@ -288,10 +280,22 @@ export default function WalletConnectConnectionPanel({ onConnected }) {
           <JsonViewer value={healthResponse} />
         </div>
       )}
+      {inspectResponse && (
+        <div>
+          <p className="mt-4 text-left text-sm font-medium text-foreground">Inspect Response</p>
+          <JsonViewer value={inspectResponse} />
+        </div>
+      )}
+      {verifyResponse && (
+        <div>
+          <p className="mt-4 text-left text-sm font-medium text-foreground">Verification Response (Payment Options)</p>
+          <JsonViewer value={verifyResponse} />
+        </div>
+      )}
 
       <div className="mt-6 rounded-md border border-border p-4 text-left">
         <p className="text-sm font-medium text-foreground">Testnet Transfer</p>
-        <p className="mt-1 text-xs text-muted-foreground">Send a transaction on a supported testnet to a given EVM wallet address.</p>
+        <p className="mt-1 text-xs text-muted-foreground">Send a MetaMask transaction on a supported testnet to a given MetaMask address.</p>
 
         <div className="mt-3 grid gap-4 md:grid-cols-2">
           <div>
@@ -309,7 +313,7 @@ export default function WalletConnectConnectionPanel({ onConnected }) {
           </div>
 
           <div className="md:col-span-2">
-            <label className={label} htmlFor="recipientAddress">Recipient Wallet Address</label>
+            <label className={label} htmlFor="recipientAddress">Recipient MetaMask Address</label>
             <input className={input} id="recipientAddress" name="recipientAddress" value={form.recipientAddress} onChange={updateField} placeholder="0x..." />
           </div>
 
