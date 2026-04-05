@@ -286,11 +286,9 @@ export default function App() {
     )
   }
 
-  // Onboarding is required - show onboarding page (if not already there, redirect)
+  // Onboarding is required - always force onboarding and block all other pages.
   if (onboardingRequired) {
-    // Only show onboarding if user came from signup flow, not login
-    if (route.pathname !== '/onboarding' && route.mode === 'signup') {
-      // Redirect to onboarding
+    if (route.pathname !== '/onboarding') {
       navigate('/onboarding')
       return (
         <main className="relative min-h-screen overflow-hidden bg-background text-foreground">
@@ -306,7 +304,6 @@ export default function App() {
     }
 
     if (route.pathname === '/onboarding') {
-      // Show onboarding form
       return (
         <main className="relative min-h-screen overflow-hidden bg-background text-foreground">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_16%_18%,rgba(255,190,92,0.26),transparent_40%),radial-gradient(circle_at_84%_14%,rgba(40,175,255,0.18),transparent_42%),radial-gradient(circle_at_50%_84%,rgba(20,189,151,0.16),transparent_40%)]" />
@@ -349,14 +346,6 @@ export default function App() {
         </main>
       )
     }
-
-    // If onboarding is required but not coming from signup and not on onboarding page, go to dashboard
-    return (
-      <Dashboard 
-        activeTab={route.tab || 'wallet'} 
-        onTabChange={navigateToDashboardTab}
-      />
-    )
   }
 
   // User is authenticated and onboarding is complete - show dashboard
