@@ -92,6 +92,11 @@ export default function BillsTab({ userWallet }) {
   // routeState[paymentId] = { status: 'idle'|'scanning'|'ready'|'error', ranked: [], error, selectedToken, walletFrom }
   const [routeState, setRouteState] = useState({})
 
+  // Flag state: flagging[paymentId] = 'idle'|'open'|'submitting'|'done'|'error'
+  const [flagState, setFlagState]   = useState({}) // { [paymentId]: { status, reason, error } }
+
+  const FLAG_REASONS = ['Incorrect amount', 'Not my invoice', 'Already paid', 'Duplicate invoice', 'Other']
+
   useEffect(() => { if (effectiveWallet) fetchBills() }, [effectiveWallet])
 
   const fetchBills = async () => {
@@ -237,6 +242,32 @@ export default function BillsTab({ userWallet }) {
       setTxResults(prev => ({ ...prev, [stateKey]: { error: err.message } }))
     } finally {
       setPayingId(null)
+    }
+  }
+
+  // ── Flag ─────────────────────────────────────────────────────────────────
+  const openFlag = (paymentId) =>
+    setFlagState(prev => ({ ...prev, [paymentId]: { status: 'open', reason: FLAG_REASONS[0], error: null } }))
+
+  const closeFlag = (paymentId) =>
+    setFlagState(prev => ({ ...prev, [paymentId]: { status: 'idle' } }))
+
+  const submitFlag = async (_bill, paymentId) => {
+    const fs = flagState[paymentId]
+    if (!fs?.reason) return
+
+    setFlagState(prev => ({ ...prev, [paymentId]: { ...fs, status: 'submitting' } }))
+    try {
+      const res = await fetch(`${API_BASE}/api/bills/${paymentId}/flag`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flaggerWallet: effectiveWallet, reason: fs.reason }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Flag failed')
+      setFlagState(prev => ({ ...prev, [paymentId]: { status: 'done' } }))
+    } catch (err) {
+      setFlagState(prev => ({ ...prev, [paymentId]: { ...fs, status: 'error', error: err.message } }))
     }
   }
 
@@ -519,6 +550,53 @@ export default function BillsTab({ userWallet }) {
                     </div>
                   )}
                   {txResult?.error && <p className="text-xs text-red-500">{txResult.error}</p>}
+
+                  {/* Flag this invoice */}
+                  {(() => {
+                    const flagPaymentId = bill.isSubscription ? bill.lastPaymentId : bill.paymentId
+                    if (!flagPaymentId) return null
+                    const fs = flagState[flagPaymentId] || { status: 'idle' }
+
+                    if (fs.status === 'done') {
+                      return (
+                        <p className="text-xs text-amber-600">Flag submitted. The merchant has been notified.</p>
+                      )
+                    }
+
+                    if (fs.status === 'open' || fs.status === 'submitting' || fs.status === 'error') {
+                      return (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+                          <p className="text-xs font-semibold text-amber-700">Flag this invoice</p>
+                          <select
+                            value={fs.reason || FLAG_REASONS[0]}
+                            onChange={e => setFlagState(prev => ({ ...prev, [flagPaymentId]: { ...fs, reason: e.target.value } }))}
+                            className="w-full rounded-lg border border-input bg-background px-2 py-1.5 text-xs text-foreground outline-none"
+                          >
+                            {FLAG_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                          {fs.error && <p className="text-xs text-red-500">{fs.error}</p>}
+                          <div className="flex gap-2">
+                            <Button
+                              className="flex-1 text-xs h-7"
+                              disabled={fs.status === 'submitting'}
+                              onClick={() => submitFlag(bill, flagPaymentId)}
+                            >
+                              {fs.status === 'submitting' ? 'Submitting…' : 'Submit flag'}
+                            </Button>
+                            <button onClick={() => closeFlag(flagPaymentId)} className="text-xs text-muted-foreground hover:underline">
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    }
+
+                    return (
+                      <button onClick={() => openFlag(flagPaymentId)} className="text-xs text-amber-600 hover:underline text-left">
+                        Flag this invoice as incorrect
+                      </button>
+                    )
+                  })()}
                 </div>
               )
             }) : !loading ? (

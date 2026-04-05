@@ -215,3 +215,29 @@ create policy "merchant_subscription_executions service role only"
   to service_role
   using (true)
   with check (true);
+
+-- Invoice flags: users can flag invoices they believe are incorrect or addressed to them by mistake.
+-- Merchants see these flags on their InvoicesTab to investigate and take action.
+create table if not exists public.invoice_flags (
+  id bigint generated always as identity primary key,
+  payment_id text not null,
+  flagger_wallet text not null,
+  reason text not null check (reason in ('Incorrect amount', 'Not my invoice', 'Already paid', 'Duplicate invoice', 'Other')),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_invoice_flags_payment_id
+  on public.invoice_flags (payment_id);
+
+create index if not exists idx_invoice_flags_flagger
+  on public.invoice_flags (flagger_wallet);
+
+alter table public.invoice_flags enable row level security;
+
+drop policy if exists "invoice_flags service role only" on public.invoice_flags;
+create policy "invoice_flags service role only"
+  on public.invoice_flags
+  for all
+  to service_role
+  using (true)
+  with check (true);
