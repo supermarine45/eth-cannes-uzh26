@@ -295,6 +295,7 @@ function validateOnboardingInput(body, provider = 'email') {
   const companyName = String(body?.companyName ?? body?.company_name ?? '').trim()
   const businessAddress = String(body?.businessAddress ?? body?.business_address ?? '').trim()
   const ensName = normalizeCannesEnsName(body?.ensName ?? body?.ens_name)
+  const appPassword = String(body?.appPassword ?? body?.app_password ?? '').trim()
 
   if (provider !== 'metamask' && !fullName) {
     throw new Error('fullName is required.')
@@ -416,7 +417,7 @@ async function deleteWalletTrackingRows(walletAddresses) {
   }
 }
 
-async function upsertProfile({ principalId, authProvider, fullName, dateOfBirth, accountType, companyName, businessAddress, email, ensName }) {
+async function upsertProfile({ principalId, authProvider, fullName, dateOfBirth, accountType, companyName, businessAddress, email, ensName, appPasswordHash }) {
   const existingProfile = await getProfileByPrincipal(principalId)
   const nextEnsName = ensName ?? existingProfile?.ens_name ?? null
 
@@ -1024,7 +1025,7 @@ router.post('/onboarding', async (req, res) => {
       throw new Error('walletAddresses must include at least one wallet.')
     }
     const primaryWalletAddress = getPrimaryWalletAddress(walletAddresses)
-    const shouldSyncEnsOnchain = req.body?.syncEnsOnchain !== false
+    const shouldSyncEnsOnchain = req.body?.syncEnsOnchain === true
 
     logAuthEvent('onboarding.request', {
       provider,

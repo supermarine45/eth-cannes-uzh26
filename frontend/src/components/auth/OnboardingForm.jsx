@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/useAuth'
-import { normalizeCannesEnsName } from '@/lib/ens'
+import { normalizeCannesEnsName, registerEnsProfileWithMetaMask } from '@/lib/ens'
 
 const label = 'mb-1 block text-sm font-medium text-foreground'
 const input = 'w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground/80 focus:border-ring focus:ring-2 focus:ring-ring/40'
@@ -11,11 +11,17 @@ function getBestInjectedProvider() {
     return null
   }
 
+  if (window.ethereum?.isMetaMask) {
+    return window.ethereum
+  }
+
   const providers = Array.isArray(window.ethereum.providers) && window.ethereum.providers.length > 0
     ? window.ethereum.providers
     : [window.ethereum]
 
-  return providers.find((provider) => provider?.isMetaMask) ?? null
+  return providers.find((provider) => provider?.isMetaMask)
+    ?? providers.find((provider) => typeof provider?.request === 'function')
+    ?? null
 }
 
 const TOKEN_CONFIG_BY_CHAIN = {
@@ -339,8 +345,31 @@ export default function OnboardingForm() {
       }
 
       const normalizedEnsName = normalizeCannesEnsName(ensName)
+      const primaryWallet = wallets.find((entry) => entry.isPrimary)?.address || wallets[0]?.address
+
+      if (!primaryWallet) {
+        throw new Error('Primary wallet is required to register ENS on-chain.')
+      }
+
+      const injectedProvider = getBestInjectedProvider()
+      if (!injectedProvider) {
+        throw new Error('No injected wallet provider found. Install/unlock MetaMask and reload this page to register ENS on-chain.')
+      }
+
+      await injectedProvider.request({ method: 'eth_requestAccounts' })
+
+      // Register ENS profile via MetaMask
+      if (normalizedEnsName) {
+        await registerEnsProfileWithMetaMask({
+          ethereumProvider: injectedProvider,
+          ensName: normalizedEnsName,
+          profileURI: '',
+          expectedOwnerAddress: primaryWallet,
+        })
+      }
 
       await saveOnboarding({
+        syncEnsOnchain: false,
         authProvider: session?.provider,
         fullName: isMetaMaskSignup ? null : fullName,
         dateOfBirth,
