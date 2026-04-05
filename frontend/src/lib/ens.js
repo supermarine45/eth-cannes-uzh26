@@ -1,4 +1,5 @@
 const ENS_BASE_URL = import.meta.env.VITE_AUTH_BASE_URL
+const ENS_NAME_PATTERN = /^[a-z0-9]+\.cannes$/
 
 function trimTrailingSlash(value) {
   return value?.replace(/\/+$/, '') ?? ''
@@ -44,6 +45,20 @@ async function request(path) {
   }
 
   return data
+}
+
+export function normalizeCannesEnsName(value) {
+  const normalized = String(value ?? '').trim().toLowerCase()
+
+  if (!normalized) {
+    return null
+  }
+
+  if (!ENS_NAME_PATTERN.test(normalized)) {
+    throw new Error('ENS name must end with .cannes and use only letters or numbers before the suffix.')
+  }
+
+  return normalized
 }
 
 export function getEnsPayees({ walletAddress, offset = 0, limit = 10 } = {}) {

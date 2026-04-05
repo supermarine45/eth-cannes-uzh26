@@ -109,7 +109,14 @@ async function parseAuthResponse(response) {
   }
 
   if (!response.ok) {
-    const message = data?.error ?? data?.message ?? `Auth request failed with status ${response.status}`
+    const rawMessage = data?.error ?? data?.message ?? `Auth request failed with status ${response.status}`
+    const normalized = String(rawMessage).toLowerCase()
+
+    const message = normalized.includes('auth_user_wallet_addresses_wallet_address_key')
+      || (normalized.includes('duplicate key value violates unique constraint') && normalized.includes('wallet_address'))
+      ? 'There exists an account with this address, either login or add a different account.'
+      : rawMessage
+
     throw new Error(message)
   }
 
@@ -186,10 +193,10 @@ export function deleteAuthAccount(accessToken) {
   })
 }
 
-export function exchangeOAuthCode(code, provider = 'google') {
+export function exchangeOAuthCode(code, provider = 'google', mode = 'login') {
   const exchangePath = `/api/auth/${provider}/callback`
   return request(exchangePath, {
     method: 'POST',
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, mode }),
   })
 }

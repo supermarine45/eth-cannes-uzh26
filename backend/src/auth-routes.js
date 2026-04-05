@@ -1,6 +1,7 @@
 const crypto = require('crypto')
 const express = require('express')
 const { ethers } = require('ethers')
+const { normalizeCannesEnsName } = require('./ens-name')
 
 const router = express.Router()
 
@@ -97,6 +98,20 @@ function summarizeWalletAddress(entry) {
     created_at: entry.created_at,
     updated_at: entry.updated_at,
   }
+}
+
+function mapOnboardingErrorMessage(error) {
+  const rawMessage = String(error?.message || '').toLowerCase()
+
+  const isWalletUniqueViolation = rawMessage.includes('auth_user_wallet_addresses_wallet_address_key')
+    || (rawMessage.includes('duplicate key value violates unique constraint')
+      && rawMessage.includes('wallet_address'))
+
+  if (isWalletUniqueViolation) {
+    return 'There exists an account with this address, either login or add a different account.'
+  }
+
+  return error?.message || 'Onboarding failed.'
 }
 
 function base64UrlEncode(value) {
@@ -277,10 +292,14 @@ function validateOnboardingInput(body, provider = 'email') {
   const accountType = normalizeAccountType(body?.accountType ?? body?.account_type)
   const companyName = String(body?.companyName ?? body?.company_name ?? '').trim()
   const businessAddress = String(body?.businessAddress ?? body?.business_address ?? '').trim()
-  const ensName = String(body?.ensName ?? body?.ens_name ?? '').trim()
+  const ensName = normalizeCannesEnsName(body?.ensName ?? body?.ens_name)
 
   if (provider !== 'metamask' && !fullName) {
     throw new Error('fullName is required.')
+  }
+
+  if ((provider === 'google' || provider === 'metamask') && appPassword.length < 8) {
+    throw new Error('Password is required and must be at least 8 characters for Google/MetaMask accounts.')
   }
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
@@ -308,6 +327,10 @@ function validateOnboardingInput(body, provider = 'email') {
     }
   }
 
+  if (!ensName) {
+    throw new Error('ensName is required.')
+  }
+
   return {
     fullName: fullName || null,
     dateOfBirth,
@@ -315,7 +338,21 @@ function validateOnboardingInput(body, provider = 'email') {
     companyName: companyName || null,
     businessAddress: businessAddress || null,
     ensName: ensName || null,
+    appPassword: appPassword || null,
   }
+}
+
+function hashAppPassword(password) {
+  const normalizedPassword = String(password || '').trim()
+  if (!normalizedPassword) {
+    return null
+  }
+
+  const salt = crypto.randomBytes(16)
+  const keyLength = 64
+  const hash = crypto.scryptSync(normalizedPassword, salt, keyLength)
+
+  return `scrypt:${salt.toString('hex')}:${hash.toString('hex')}`
 }
 
 function getBearerToken(req) {
@@ -378,6 +415,13 @@ async function deleteWalletTrackingRows(walletAddresses) {
 }
 
 async function upsertProfile({ principalId, authProvider, fullName, dateOfBirth, accountType, companyName, businessAddress, email, ensName }) {
+  const existingProfile = await getProfileByPrincipal(principalId)
+  const nextEnsName = ensName ?? existingProfile?.ens_name ?? null
+
+  if (!nextEnsName) {
+    throw new Error('ensName is required.')
+  }
+
   const rows = await supabaseRestRequest('auth_user_profiles?on_conflict=principal_id', {
     method: 'POST',
     body: [{
@@ -388,8 +432,9 @@ async function upsertProfile({ principalId, authProvider, fullName, dateOfBirth,
       account_type: accountType,
       company_name: companyName,
       business_address: businessAddress,
-      ens_name: ensName,
+      ens_name: nextEnsName,
       email: email || null,
+      app_password_hash: appPasswordHash,
       onboarding_completed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }],
@@ -437,6 +482,7 @@ function normalizeProfileForFrontend(profile) {
 
   return {
     ...profile,
+    app_password_hash: undefined,
     account_type: accountType,
     accountType,
     isMerchant,
@@ -450,6 +496,18 @@ function buildOnboardingRequired(profile) {
     || !profile.date_of_birth
     || !profile.account_type
     || (isBusinessAccountType(profile.account_type) && (!profile.company_name || !profile.business_address))
+}
+
+function isRegisteredProfile(profile, provider) {
+  if (!profile || !profile.onboarding_completed_at) {
+    return false
+  }
+
+  if ((provider === 'google' || provider === 'metamask') && !profile.app_password_hash) {
+    return false
+  }
+
+  return true
 }
 
 function buildUserResponse({ user, provider, walletAddress }) {
@@ -639,6 +697,7 @@ router.post('/google/url', async (req, res) => {
 router.post('/google/callback', async (req, res) => {
   try {
     const { code } = req.body ?? {}
+    const mode = req.body?.mode === 'signup' ? 'signup' : 'login'
     if (typeof code !== 'string' || code.trim() === '') {
       throw new Error('Authorization code is required')
     }
@@ -659,11 +718,22 @@ router.post('/google/callback', async (req, res) => {
       hasAccessToken: Boolean(session?.access_token),
       userId: session?.user?.id || null,
       provider: session?.user?.app_metadata?.provider || 'google',
+      mode,
     })
+
+    if (mode === 'login') {
+      const principalId = session?.user?.id
+      const profile = principalId ? await getProfileByPrincipal(principalId) : null
+      if (!isRegisteredProfile(profile, 'google')) {
+        const loginError = new Error('Account not registered. Please sign up first.')
+        loginError.statusCode = 403
+        throw loginError
+      }
+    }
 
     res.json({ session })
   } catch (error) {
-    res.status(400).json({ error: error.message })
+    res.status(error.statusCode || 400).json({ error: error.message })
   }
 })
 
@@ -717,6 +787,7 @@ router.post('/wallet/verify', async (req, res) => {
     const address = normalizeAddress(req.body?.address)
     const nonce = String(req.body?.nonce || '').trim()
     const signature = String(req.body?.signature || '').trim()
+    const mode = req.body?.mode === 'signup' ? 'signup' : 'login'
 
     if (!nonce) {
       throw new Error('nonce is required')
@@ -747,6 +818,15 @@ router.post('/wallet/verify', async (req, res) => {
     const recoveredAddress = ethers.verifyMessage(challenge.message, signature).toLowerCase()
     if (recoveredAddress !== address) {
       throw new Error('Signature does not match the requested wallet address.')
+    }
+
+    if (mode === 'login') {
+      const existingProfile = await getProfileByPrincipal(`wallet:${address}`)
+      if (!isRegisteredProfile(existingProfile, 'metamask')) {
+        const loginError = new Error('Account not registered. Please sign up first.')
+        loginError.statusCode = 403
+        throw loginError
+      }
     }
 
     logAuthEvent('wallet.verify.signed', {
@@ -926,6 +1006,7 @@ router.post('/onboarding', async (req, res) => {
       businessAddress: parsed.businessAddress,
       email: user.email || req.body?.email || null,
       ensName: parsed.ensName,
+      appPasswordHash: hashAppPassword(parsed.appPassword),
     })
 
     const linkedWallets = await replaceWalletAddresses(profile.id, walletAddresses)
@@ -946,7 +1027,7 @@ router.post('/onboarding', async (req, res) => {
       onboardingRequired: false,
     })
   } catch (error) {
-    res.status(400).json({ error: error.message })
+    res.status(400).json({ error: mapOnboardingErrorMessage(error) })
   }
 })
 
@@ -988,9 +1069,15 @@ router.delete('/account', async (req, res) => {
     await deleteWalletTrackingRows(linkedWalletAddresses)
 
     if (provider !== 'metamask') {
-      await supabaseAdminAuthRequest(`/users/${encodeURIComponent(user.id)}`, {
-        method: 'DELETE',
-      })
+      try {
+        await supabaseAdminAuthRequest(`/users/${encodeURIComponent(user.id)}`, {
+          method: 'DELETE',
+        })
+      } catch (adminDeleteError) {
+        if (adminDeleteError.statusCode !== 404) {
+          throw adminDeleteError
+        }
+      }
     }
 
     res.json({ ok: true })

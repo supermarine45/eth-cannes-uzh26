@@ -125,7 +125,7 @@ export default function App() {
         let nextSession = null
 
         if (callbackSession.code) {
-          const result = await exchangeOAuthCode(callbackSession.code, callbackSession.provider)
+          const result = await exchangeOAuthCode(callbackSession.code, callbackSession.provider, route.mode)
           nextSession = auth.normalizeAuthSessionPayload(result.session, callbackSession.provider)
         } else {
           nextSession = auth.normalizeAuthSessionPayload({
@@ -145,7 +145,7 @@ export default function App() {
     }
 
     handleOAuthCallback()
-  }, [callbackSession, applySession, auth])
+  }, [callbackSession, applySession, auth, route.mode])
 
   // If no session, show auth pages or landing
   if (!session) {
@@ -321,7 +321,7 @@ export default function App() {
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="outline" className="px-5" onClick={() => { clearSession('Session cleared.'); navigate('/auth', 'login') }}>Switch Account</Button>
-                <Button className="px-5" onClick={() => { clearSession('Session cleared.'); navigate('/auth', 'signup') }}>New Account</Button>
+                <Button className="px-5" onClick={() => { clearSession('Logged out.'); navigate('/') }}>Logout</Button>
               </div>
             </header>
 
