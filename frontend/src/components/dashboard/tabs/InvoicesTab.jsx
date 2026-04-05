@@ -57,8 +57,8 @@ export default function InvoicesTab({ userWallet }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amountUSD: parseFloat(formData.amount),
-          merchantWallet: effectiveWallet,
-          recipientWallet: formData.recipientWallet,
+          merchantWallet: effectiveWallet.trim(),
+          recipientWallet: formData.recipientWallet.trim(),
           description: formData.description,
           dueDate: formData.dueDate || null,
           referenceId: `omni-${Date.now()}`,
