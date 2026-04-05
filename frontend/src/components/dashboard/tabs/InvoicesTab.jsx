@@ -15,6 +15,7 @@ export default function InvoicesTab({ userWallet }) {
   const [paymentStatus, setPaymentStatus] = useState(null)
   const [manualWallet, setManualWallet] = useState('')
   const [manualWalletInput, setManualWalletInput] = useState('')
+  const [invoiceFlags, setInvoiceFlags] = useState({}) // { paymentId: [flag, ...] }
 
   const effectiveWallet = userWallet || manualWallet
 
@@ -51,6 +52,18 @@ export default function InvoicesTab({ userWallet }) {
         if (typeof value === 'number') return value > 1e12 ? value : value * 1000
         const parsed = new Date(value).getTime()
         return Number.isNaN(parsed) ? 0 : parsed
+      }
+
+      // Fetch all flags for this merchant's invoices in one call
+      const flagRes = await fetch(`${API_BASE}/api/merchant/invoices/flags?wallet=${effectiveWallet}`)
+      if (flagRes.ok) {
+        const allFlags = await flagRes.json()
+        const grouped = {}
+        for (const flag of allFlags) {
+          if (!grouped[flag.paymentId]) grouped[flag.paymentId] = []
+          grouped[flag.paymentId].push(flag)
+        }
+        setInvoiceFlags(grouped)
       }
 
       setInvoices(
@@ -185,6 +198,27 @@ export default function InvoicesTab({ userWallet }) {
       setError(err.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleCancel = async (invoice) => {
+    if (!window.confirm(`Cancel this ${invoice.isSubscription ? 'subscription' : 'invoice'} for $${Number(invoice.amountUSD).toFixed(2)}? This cannot be undone.`)) return
+
+    try {
+      if (invoice.isSubscription) {
+        const res = await fetch(`${API_BASE}/api/merchant/subscription/${invoice.subscriptionId}`, { method: 'DELETE' })
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Cancel failed') }
+      } else {
+        const res = await fetch(`${API_BASE}/api/merchant/invoice/${invoice.paymentId}`, { method: 'DELETE' })
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Cancel failed') }
+      }
+      setInvoices(prev => prev.map(inv => {
+        if (invoice.isSubscription && inv.subscriptionId === invoice.subscriptionId) return { ...inv, status: 'cancelled' }
+        if (!invoice.isSubscription && inv.paymentId === invoice.paymentId) return { ...inv, status: 'Cancelled' }
+        return inv
+      }))
+    } catch (err) {
+      alert(`Failed to cancel: ${err.message}`)
     }
   }
 
@@ -484,17 +518,45 @@ export default function InvoicesTab({ userWallet }) {
                 </div>
               )}
 
-              {!invoice.isSubscription && (
-                <div className="flex gap-2">
-                  <button onClick={() => pollStatus(invoice.paymentId)}
-                    className="text-xs font-medium text-primary hover:underline">
-                    Check status
-                  </button>
-                  {activePaymentId === invoice.paymentId && paymentStatus && (
-                    <span className="text-xs text-muted-foreground">→ {paymentStatus}</span>
-                  )}
+              {/* Flags from users */}
+              {!invoice.isSubscription && invoiceFlags[invoice.paymentId]?.length > 0 && (
+                <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 space-y-1">
+                  <p className="text-xs font-semibold text-amber-700">
+                    {invoiceFlags[invoice.paymentId].length} flag{invoiceFlags[invoice.paymentId].length > 1 ? 's' : ''} raised by recipient
+                  </p>
+                  {invoiceFlags[invoice.paymentId].map(flag => (
+                    <p key={flag.id} className="text-xs text-amber-700">
+                      <span className="font-mono">{flag.flaggerWallet.slice(0, 8)}…</span>
+                      {' — '}{flag.reason}
+                      <span className="text-amber-500 ml-1">
+                        · {new Date(flag.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                    </p>
+                  ))}
                 </div>
               )}
+
+              <div className="flex items-center gap-3 flex-wrap">
+                {!invoice.isSubscription && (
+                  <>
+                    <button onClick={() => pollStatus(invoice.paymentId)}
+                      className="text-xs font-medium text-primary hover:underline">
+                      Check status
+                    </button>
+                    {activePaymentId === invoice.paymentId && paymentStatus && (
+                      <span className="text-xs text-muted-foreground">→ {paymentStatus}</span>
+                    )}
+                  </>
+                )}
+                {!['cancelled', 'Cancelled', 'Paid', 'paid', 'completed'].includes(invoice.status) && (
+                  <button
+                    onClick={() => handleCancel(invoice)}
+                    className="text-xs font-medium text-red-500 hover:underline"
+                  >
+                    Cancel {invoice.isSubscription ? 'subscription' : 'invoice'}
+                  </button>
+                )}
+              </div>
             </div>
           ))
         ) : (

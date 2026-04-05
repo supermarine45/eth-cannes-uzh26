@@ -264,6 +264,13 @@ function createSubscriptionRegistry() {
       });
     },
 
+    async cancelSubscription(subscriptionId) {
+      return updateSubscriptionRow(subscriptionId, {
+        status: "cancelled",
+        next_execution_at: null,
+      });
+    },
+
     async subscriptionExists(subscriptionId) {
       const rows = await supabaseRestRequest(`merchant_subscriptions?subscription_id=eq.${encodeURIComponent(subscriptionId)}&select=id`);
       return Array.isArray(rows) && rows.length > 0;
