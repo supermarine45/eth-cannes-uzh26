@@ -37,6 +37,7 @@ create table if not exists public.auth_user_profiles (
   company_name text,
   business_address text,
   email text,
+  ens_name text unique,
   onboarding_completed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -47,6 +48,9 @@ alter table public.auth_user_profiles
 
 alter table public.auth_user_profiles
   add column if not exists account_type text;
+
+alter table public.auth_user_profiles
+  add column if not exists ens_name text unique;
 
 alter table public.auth_user_profiles
   add column if not exists company_name text;
