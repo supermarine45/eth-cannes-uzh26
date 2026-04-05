@@ -41,11 +41,7 @@ export default function SettingsTab() {
   const accountType = profile?.account_type || 'individual'
   const accountTypeLabel = accountType === 'business' ? 'Merchant' : 'Individual'
 
-  const handleLogout = () => {
-    clearSession('You have been logged out.')
-    window.location.href = '/auth'
-  }
-
+  
   const openDeleteAccountDialog = () => {
     setWalletError('')
     setWalletSuccess('')
@@ -467,9 +463,6 @@ export default function SettingsTab() {
       <section className="space-y-4">
         <h3 className="font-semibold text-foreground">Session</h3>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Button variant="destructive" onClick={handleLogout} className="w-full">
-            Logout
-          </Button>
           <Button variant="destructive" disabled={deletingAccount} onClick={openDeleteAccountDialog} className="w-full">
             Delete Account
           </Button>
