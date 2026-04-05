@@ -64,8 +64,8 @@ export default function SignupAuthPanel({ onBack }) {
 
   const handleGoogleSignup = async () => {
     await runAction('google', async () => {
-      const redirectTo = `${window.location.origin}/auth/callback`
-      const data = await getGoogleLoginUrl({ redirectTo })
+      const redirectTo = `${window.location.origin}/auth/callback?mode=signup`
+      const data = await getGoogleLoginUrl({ redirectTo, mode: 'signup' })
       if (!data?.url) {
         throw new Error('Google login URL was not returned by backend.')
       }
@@ -112,6 +112,7 @@ export default function SignupAuthPanel({ onBack }) {
         address: walletAddress,
         nonce: challenge.nonce,
         signature,
+        mode: 'signup',
       })
 
       applySession({

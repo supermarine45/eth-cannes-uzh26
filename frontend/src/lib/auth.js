@@ -193,10 +193,10 @@ export function deleteAuthAccount(accessToken) {
   })
 }
 
-export function exchangeOAuthCode(code, provider = 'google') {
+export function exchangeOAuthCode(code, provider = 'google', mode = 'login') {
   const exchangePath = `/api/auth/${provider}/callback`
   return request(exchangePath, {
     method: 'POST',
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, mode }),
   })
 }

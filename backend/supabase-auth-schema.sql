@@ -32,6 +32,7 @@ create table if not exists public.auth_user_profiles (
   principal_id text not null unique,
   auth_provider text not null,
   full_name text,
+  app_password_hash text,
   date_of_birth date,
   account_type text,
   company_name text,
@@ -45,6 +46,9 @@ create table if not exists public.auth_user_profiles (
 
 alter table public.auth_user_profiles
   add column if not exists date_of_birth date;
+
+alter table public.auth_user_profiles
+  add column if not exists app_password_hash text;
 
 alter table public.auth_user_profiles
   add column if not exists account_type text;
