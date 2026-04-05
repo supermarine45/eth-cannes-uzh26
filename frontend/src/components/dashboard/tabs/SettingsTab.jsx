@@ -143,19 +143,7 @@ export default function SettingsTab() {
       throw new Error('Complete onboarding first before editing wallets in Settings.')
     }
 
-<<<<<<< HEAD
     await saveOnboarding(buildOnboardingPayload({
-=======
-    await saveOnboarding({
-      syncEnsOnchain: false,
-      fullName: profile.full_name,
-      dateOfBirth: profile.date_of_birth,
-      ensName: profile.ens_name,
-      accountType: profile.account_type,
-      companyName: profile.account_type === 'business' ? profile.company_name : null,
-      businessAddress: profile.account_type === 'business' ? profile.business_address : null,
-      email: user?.email || profile?.email || null,
->>>>>>> c8b1ce58132b48b61dc061e97375f79fe9de0d42
       walletAddresses: nextWallets.map((entry, index) => ({
         address: entry.address,
         label: entry.label || '',
