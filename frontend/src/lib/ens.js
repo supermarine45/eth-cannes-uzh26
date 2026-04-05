@@ -57,3 +57,14 @@ export function getEnsPayees({ walletAddress, offset = 0, limit = 10 } = {}) {
 
   return request(`/api/ens/payees?${query.toString()}`)
 }
+
+export function searchEnsProfile(query, { walletAddress } = {}) {
+  const normalizedQuery = String(query || '').trim()
+  const searchParams = new URLSearchParams({ query: normalizedQuery })
+
+  if (walletAddress) {
+    searchParams.set('wallet', walletAddress)
+  }
+
+  return request(`/api/ens/search?${searchParams.toString()}`)
+}

@@ -461,6 +461,108 @@ app.get("/api/ens/resolve/:ensNode", async (req, res) => {
   }
 });
 
+app.get("/api/ens/search", async (req, res) => {
+  try {
+    const query = typeof req.query.query === "string" ? req.query.query.trim() : "";
+    const wallet = typeof req.query.wallet === "string" && req.query.wallet.trim() ? req.query.wallet.trim() : null;
+    console.log('[backend] /api/ens/search start', { query, wallet })
+
+    if (!query) {
+      console.log('[backend] /api/ens/search missing query')
+      return sendError(res, 400, "query is required");
+    }
+
+    let ownerAddress = null;
+    if (ethers.isAddress(query)) {
+      ownerAddress = ethers.getAddress(query);
+    } else if (query.includes(".")) {
+      const ensNode = ethers.namehash(query);
+      ownerAddress = await ensRegistry.resolveEnsNode(ensNode);
+    } else {
+      console.log('[backend] /api/ens/search invalid query format', { query })
+      return sendError(res, 400, "query must be a valid Ethereum address or ENS name");
+    }
+
+    console.log('[backend] /api/ens/search resolved ownerAddress', { ownerAddress })
+
+    if (!ownerAddress) {
+      console.log('[backend] /api/ens/search ownerAddress not found', { query })
+      return sendError(res, 404, "Unable to resolve ENS query to an address");
+    }
+
+    let profile;
+    try {
+      profile = await ensRegistry.getProfile(ownerAddress);
+      console.log('[backend] /api/ens/search getProfile result', { profile })
+    } catch (profileError) {
+      console.error('[backend] /api/ens/search getProfile error', profileError)
+      profile = null;
+    }
+
+    if (!profile) {
+      console.log('[backend] /api/ens/search no ENS registry profile', { ownerAddress })
+      return res.json({ owner: ownerAddress, profile: null });
+    }
+
+    const reviewers = await ensRegistry.getKnownReviewers(profile.owner);
+    const recentReviewerAddresses = reviewers.slice(0, 3);
+
+    const latestReviews = await Promise.all(
+      recentReviewerAddresses.map(async (reviewerAddress) => {
+        try {
+          const feedbackIndex = await ensRegistry.getLastFeedbackIndex(profile.owner, reviewerAddress);
+          if (!feedbackIndex || feedbackIndex < 1) {
+            return null;
+          }
+
+          const feedback = await ensRegistry.readFeedback(profile.owner, reviewerAddress, feedbackIndex);
+          return {
+            reviewerAddress,
+            feedbackIndex,
+            ...feedback,
+          };
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    let myReview = null;
+    let mySummary = null;
+
+    if (wallet) {
+      try {
+        const feedbackIndex = await ensRegistry.getLastFeedbackIndex(profile.owner, wallet);
+        if (feedbackIndex && feedbackIndex >= 1) {
+          const feedback = await ensRegistry.readFeedback(profile.owner, wallet, feedbackIndex);
+          myReview = {
+            reviewerAddress: wallet,
+            feedbackIndex,
+            ...feedback,
+          };
+        }
+
+        mySummary = await ensRegistry.getSummary(profile.owner, [wallet]);
+      } catch {
+        myReview = null;
+        mySummary = null;
+      }
+    }
+
+    res.json({
+      owner: ownerAddress,
+      profile: {
+        ...profile,
+        latestReviews: latestReviews.filter(Boolean),
+        myReview,
+        mySummary,
+      },
+    });
+  } catch (error) {
+    sendError(res, 400, error.message);
+  }
+});
+
 app.post("/api/ens/give-feedback", async (req, res) => {
   try {
     const { reviewerAddress, targetAddress, value, valueDecimals, tag1, tag2, endpoint, feedbackURI } = req.body ?? {};
